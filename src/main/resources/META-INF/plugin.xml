@@ -10,6 +10,7 @@
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow factoryClass="org.jetbrains.plugins.template.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
+        <appStarter id="completion" implementation="org.jetbrains.plugins.template.application.CompletionStarter"/>
     </extensions>
 
     <applicationListeners>

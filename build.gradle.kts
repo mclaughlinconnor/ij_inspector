@@ -137,6 +137,12 @@ tasks {
 
 intellijPlatformTesting {
     runIde {
+        register("runIdeCompletion") {
+            task {
+                args = listOf("completion", "/home/connor/Development/intellij-community", "/home/connor/Development/intellij-community/platform/util-rt/src/com/intellij/openapi/util/Pair.java")
+            }
+        }
+
         register("runIdeForUiTests") {
             task {
                 jvmArgumentProviders += CommandLineArgumentProvider {
