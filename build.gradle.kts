@@ -139,7 +139,7 @@ intellijPlatformTesting {
     runIde {
         register("runIdeCompletion") {
             task {
-                args = listOf("completion", "/home/connor/Development/intellij-community", "/home/connor/Development/intellij-community/platform/util-rt/src/com/intellij/openapi/util/Pair.java")
+                args = listOf("completion_inspect", "/home/connor/Development/intellij-community", "/home/connor/Development/intellij-community/platform/util-rt/src/com/intellij/openapi/util/Pair.java")
             }
         }
 

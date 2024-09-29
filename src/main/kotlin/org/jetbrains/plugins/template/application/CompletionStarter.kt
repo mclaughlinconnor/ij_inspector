@@ -20,6 +20,14 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.util.Consumer
 
+/**
+ * Gets completions at the cursor using the project and filename provided as arguments.
+ *
+ * The application's command *must* end with `"inspect"` and be less than 20 characters, otherwise, it will not
+ * launch headlessly.
+ *
+ * @see com.intellij.idea.AppMode.isHeadless(java.util.List<java.lang.String>)
+ */
 @Suppress("UnstableApiUsage")
 class CompletionStarter : ApplicationStarter {
     override val isHeadless: Boolean
@@ -89,7 +97,6 @@ class CompletionStarter : ApplicationStarter {
         }
 
     }
-
 
     private fun obtainLookup(editor: Editor, project: Project): LookupImpl {
         val existing = LookupManager.getActiveLookup(editor) as LookupImpl?
