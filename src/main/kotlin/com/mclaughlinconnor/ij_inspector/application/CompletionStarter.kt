@@ -1,4 +1,4 @@
-package org.jetbrains.plugins.template.application
+package com.mclaughlinconnor.ij_inspector.application
 
 import com.intellij.codeInsight.completion.*
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl
@@ -7,7 +7,6 @@ import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupFocusDegree
 import com.intellij.codeInsight.lookup.LookupManager
 import com.intellij.codeInsight.lookup.impl.LookupImpl
-import com.intellij.ide.CliResult
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationStarter
@@ -40,15 +39,6 @@ import java.net.Socket
 @Suppress("UnstableApiUsage")
 class CompletionStarter : ApplicationStarter {
     private lateinit var myApplication: Application
-
-    override val isHeadless: Boolean
-        get() = true
-
-    override suspend fun processExternalCommandLine(args: List<String>, currentDirectory: String?): CliResult {
-        return CliResult(0, "Completion")
-    }
-
-    override fun canProcessExternalCommandLine(): Boolean = true
 
     override fun main(args: List<String>) {
         val projectPath = args[1]
