@@ -1,5 +1,6 @@
 package com.mclaughlinconnor.ij_inspector.application
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.intellij.codeInsight.completion.*
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl
 import com.intellij.codeInsight.lookup.LookupArranger.DefaultArranger
@@ -20,7 +21,11 @@ import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.Consumer
+import com.mclaughlinconnor.ij_inspector.application.lsp.CompletionParams
+import com.mclaughlinconnor.ij_inspector.application.lsp.Position
+import com.mclaughlinconnor.ij_inspector.application.lsp.Request
 import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
@@ -82,6 +87,8 @@ class CompletionStarter : ApplicationStarter {
         private var myCompletionType: CompletionType = completionType
         private lateinit var myInputStream: InputStream
         private lateinit var myOutputStream: OutputStream
+        private val messageFactory = MessageFactory()
+        private val objectMapper = ObjectMapper()
 
         fun setReady() {
             ready = true
@@ -94,40 +101,46 @@ class CompletionStarter : ApplicationStarter {
             myOutputStream = socket.getOutputStream()
             myInputStream = socket.getInputStream()
 
-            myOutputStream.write("Type a cursor offset to get completions at that offset.\n".toByteArray())
-
             val reader = BufferedReader(InputStreamReader(myInputStream))
 
             while (true) {
-                val input = reader.readLine().trim()
+                val header = StringBuilder()
+                val body = StringBuilder()
+                var dividerLen = 0
+                var prevDivider = 0
+
+                while (dividerLen < 4) {
+                    val c = reader.read()
+                    if ((c.toChar() == '\n' || c.toChar() == '\r') && c != prevDivider) {
+                        dividerLen++
+                        prevDivider = c
+                    } else {
+                        header.append(c.toChar())
+                        dividerLen = 0
+                        prevDivider = 0
+                    }
+                }
+
+                val contentLengthBytes = header.substring("Content-Length: ".length)
+                val contentLength = contentLengthBytes.toInt()
+
+                for (i in 0..contentLength) {
+                    val c = reader.read()
+                    body.append(c.toChar())
+                }
+
                 if (!ready) {
                     myOutputStream.write("Intellij engine is not ready yet.\n".toByteArray())
                     continue
                 }
 
-                val cursorOffset = input.toIntOrNull()
-
-                if (cursorOffset != null) {
-                    doAutocomplete(cursorOffset, myFilePath, myCompletionType)
+                val json = objectMapper.readValue(body.toString(), Request::class.java)
+                if (json.method == "textDocument/completion") {
+                    val params: CompletionParams = objectMapper.convertValue(json.params, CompletionParams::class.java)
+                    val fileUri = params.textDocument.uri.substring("file://".length)
+                    doAutocomplete(json.id, params.position, fileUri, myCompletionType)
                     continue
                 }
-
-                val args = input.split("\\t")
-                if (args.size != 3) {
-                    myOutputStream.write("Three args must be provided\n".toByteArray())
-                    continue
-                }
-
-                val startOffset = args[0].toIntOrNull()
-                val endOffset = args[1].toIntOrNull()
-                val replacementText = args[2]
-
-                if (startOffset == null || endOffset == null) {
-                    myOutputStream.write("Start and end offsets must not be null\n".toByteArray())
-                    continue
-                }
-
-                doTextChange(startOffset, endOffset, myFilePath, replacementText)
             }
         }
 
@@ -152,9 +165,8 @@ class CompletionStarter : ApplicationStarter {
         }
 
         private fun doAutocomplete(
-            cursorOffset: Int, filePath: String, completionType: CompletionType
+            id: Int, position: Position, filePath: String, completionType: CompletionType
         ) {
-            myOutputStream.write("Starting completions...\n".toByteArray())
             val results: MutableList<CompletionResult> = ArrayList()
             val consumer: Consumer<CompletionResult> = Consumer { result -> results.add(result) }
 
@@ -164,6 +176,8 @@ class CompletionStarter : ApplicationStarter {
                 FileDocumentManager.getInstance().getDocument(virtualFile, myProject)
             }
             if (document == null) return
+
+            val cursorOffset = document.getLineStartOffset(position.line) + position.character
 
             myApplication.invokeLater {
                 val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater
@@ -201,21 +215,32 @@ class CompletionStarter : ApplicationStarter {
                 val completionService = CompletionService.getCompletionService()
                 completionService.performCompletion(parameters, consumer)
 
-                for (result in results) {
-                    var renderedCompletion: String
 
-                    val prefix = result.prefixMatcher.prefix
-                    val text = result.lookupElement.lookupString
+                // public InsertionContext(final OffsetMap offsetMap, final char completionChar, final LookupElement[] elements,
+                // final @NotNull PsiFile file,
+                // final @NotNull Editor editor, final boolean addCompletionChar) {
+                val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
+                val insertionContext = InsertionContext(initContext.offsetMap, 'r',
+                    results.map { r -> r.lookupElement }.toTypedArray(), psiFile, editor, false)
+                results[0].lookupElement.handleInsert(insertionContext)
 
-                    if (prefix != "" && text.startsWith(prefix)) {
-                        val suffix = text.substring(prefix.length)
-                        renderedCompletion = "[$prefix]$suffix"
-                    } else {
-                        renderedCompletion = text
-                    }
+                myOutputStream.write((messageFactory.newCompletionMessage(id, results)).toByteArray())
 
-                    myOutputStream.write(("$renderedCompletion\n").toByteArray())
-                }
+                // for (result in results) {
+                //     var renderedCompletion: String
+
+                //     val prefix = result.prefixMatcher.prefix
+                //     val text = result.lookupElement.lookupString
+
+                //     if (prefix != "" && text.startsWith(prefix)) {
+                //         val suffix = text.substring(prefix.length)
+                //         renderedCompletion = "[$prefix]$suffix"
+                //     } else {
+                //         renderedCompletion = text
+                //     }
+
+                //     myOutputStream.write(("$renderedCompletion\n").toByteArray())
+                // }
             }
         }
     }
