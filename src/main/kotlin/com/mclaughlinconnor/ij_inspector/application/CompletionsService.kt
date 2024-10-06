@@ -6,14 +6,11 @@ import com.intellij.codeInsight.lookup.LookupElementPresentation
 import com.intellij.codeInsight.lookup.impl.LookupImpl
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ReadAction
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.util.Consumer
+import com.mclaughlinconnor.ij_inspector.application.Utils.Companion.createDocument
 import com.mclaughlinconnor.ij_inspector.application.Utils.Companion.obtainLookup
 import com.mclaughlinconnor.ij_inspector.application.lsp.*
 
@@ -64,22 +61,12 @@ class CompletionsService(
         return parameters
     }
 
-    private fun createDocument(filePath: String): Document? {
-        val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath) ?: return null
-
-        val document = ReadAction.compute<Document?, RuntimeException> {
-            FileDocumentManager.getInstance().getDocument(virtualFile, myProject)
-        }
-
-        return document
-    }
-
     fun doAutocomplete(
         id: Int, position: Position, filePath: String, completionType: CompletionType
     ) {
         val results: MutableList<CompletionResult> = ArrayList()
         val consumer: Consumer<CompletionResult> = Consumer { result -> results.add(result) }
-        val document = createDocument(filePath) ?: return
+        val document = createDocument(myProject, filePath) ?: return
         val cursorOffset = document.getLineStartOffset(position.line) + position.character
 
         myApplication.invokeLater {

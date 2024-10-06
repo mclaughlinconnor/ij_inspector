@@ -8,9 +8,7 @@ import com.intellij.openapi.application.ApplicationStarter
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
-import com.mclaughlinconnor.ij_inspector.application.lsp.CompletionParams
-import com.mclaughlinconnor.ij_inspector.application.lsp.Position
-import com.mclaughlinconnor.ij_inspector.application.lsp.Request
+import com.mclaughlinconnor.ij_inspector.application.lsp.*
 
 /**
  * Gets completions at the cursor using the project and filename provided as arguments.
@@ -46,6 +44,7 @@ class CompletionStarter : ApplicationStarter {
         private lateinit var myConnection: Connection
         private val objectMapper = ObjectMapper()
         private val completionsService = CompletionsService(myProject)
+        private val documentService = DocumentService(myProject)
 
         fun setReady() {
             ready = true
@@ -69,6 +68,22 @@ class CompletionStarter : ApplicationStarter {
                     doAutocomplete(json.id, params.position, fileUri, myCompletionType)
                     continue
                 }
+
+                if (json.method == "textDocument/didChange") {
+                    val params: DidChangeTextDocumentParams =
+                        objectMapper.convertValue(json.params, DidChangeTextDocumentParams::class.java)
+                    val filePath = params.textDocument.uri.substring("file://".length)
+                    documentService.handleChange(filePath, params)
+                    continue
+                }
+
+                if (json.method == "textDocument/didOpen") {
+                    val params: DidOpenTextDocumentParams =
+                        objectMapper.convertValue(json.params, DidOpenTextDocumentParams::class.java)
+                    val filePath = params.textDocument.uri.substring("file://".length)
+                    documentService.doOpen(filePath)
+                    continue
+                }
             }
         }
 
@@ -78,25 +93,5 @@ class CompletionStarter : ApplicationStarter {
         ) {
             completionsService.doAutocomplete(id, position, filePath, completionType)
         }
-
-        // private fun doTextChange(
-        //     startOffset: Int, endOffset: Int, filePath: String, replacementText: String
-        // ) {
-        //     val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath) ?: return
-
-        //     val document = ReadAction.compute<Document?, RuntimeException> {
-        //         FileDocumentManager.getInstance().getDocument(virtualFile, myProject)
-        //     }
-        //     if (document == null) return
-
-        //     myApplication.invokeLater {
-        //         myApplication.runWriteAction {
-        //             WriteCommandAction.runWriteCommandAction(myProject) {
-        //                 document.replaceString(startOffset, endOffset, replacementText)
-        //                 myOutputStream.write("${document.text}\n".toByteArray())
-        //             }
-        //         }
-        //     }
-        // }
     }
 }
