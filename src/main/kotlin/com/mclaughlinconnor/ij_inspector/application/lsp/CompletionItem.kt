@@ -2,9 +2,19 @@ package com.mclaughlinconnor.ij_inspector.application.lsp
 
 import com.fasterxml.jackson.annotation.JsonProperty
 
-class CompletionItem(label: String, detail: String, documentation: String, insertText: String, labelDetails : CompletionItemLabelDetails) {
+class CompletionItem(
+    label: String = "",
+    detail: String = "",
+    documentation: String = "",
+    insertText: String = "",
+    labelDetails: CompletionItemLabelDetails = CompletionItemLabelDetails("", ""),
+    additionalTextEdits: MutableList<TextEdit>? = null,
+    textEdit: TextEdit? = null,
+    data: CompletionItemData = CompletionItemData("", Position(0, 0), '\u0000')
+) {
     @JsonProperty
     val labelDetails: CompletionItemLabelDetails = labelDetails
+
     /**
      * The label of this completion item.
      *
@@ -91,7 +101,7 @@ class CompletionItem(label: String, detail: String, documentation: String, inser
      *
      * @since 3.16.0 additional type `InsertReplaceEdit`
      */
-    // val textEdit?: TextEdit | InsertReplaceEdit;
+    var textEdit: TextEdit? = textEdit
 
     /**
      * An optional array of additional text edits that are applied when
@@ -102,7 +112,7 @@ class CompletionItem(label: String, detail: String, documentation: String, inser
      * current cursor position (for example adding an import statement at the
      * top of the file if the completion item will insert an unqualified type).
      */
-    // val additionalTextEdits?: TextEdit[];
+    var additionalTextEdits: MutableList<TextEdit>? = additionalTextEdits
 
     /**
      * An optional set of characters that when pressed while this completion is
@@ -123,6 +133,12 @@ class CompletionItem(label: String, detail: String, documentation: String, inser
      * A data entry field that is preserved on a completion item between
      * a completion and a completion resolve request.
      */
-    // val data?: LSPAny;
+    @JsonProperty
+    val data: CompletionItemData = data
 }
 
+class CompletionItemData(
+    @JsonProperty val filePath: String = "",
+    @JsonProperty val position: Position = Position(0, 0),
+    @JsonProperty val triggerCharacter: Char = '\u0000'
+)

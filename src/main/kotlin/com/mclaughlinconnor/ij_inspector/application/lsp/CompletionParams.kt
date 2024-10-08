@@ -1,6 +1,7 @@
 package com.mclaughlinconnor.ij_inspector.application.lsp
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.mclaughlinconnor.ij_inspector.application.CompletionContext
 
 class CompletionParams(
     /**
@@ -16,5 +17,5 @@ class CompletionParams(
     val position: Position = Position(0, 0),
 
     @JsonProperty
-    val context: Any = 0,
+    val context: CompletionContext? = null,
 )

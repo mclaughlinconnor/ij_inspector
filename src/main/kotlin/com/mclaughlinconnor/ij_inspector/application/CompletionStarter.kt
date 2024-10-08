@@ -65,7 +65,13 @@ class CompletionStarter : ApplicationStarter {
                 if (json.method == "textDocument/completion") {
                     val params: CompletionParams = objectMapper.convertValue(json.params, CompletionParams::class.java)
                     val fileUri = params.textDocument.uri.substring("file://".length)
-                    doAutocomplete(json.id, params.position, fileUri, myCompletionType)
+                    doAutocomplete(json.id, params.position, params.context, fileUri, myCompletionType)
+                    continue
+                }
+
+                if (json.method == "completionItem/resolve") {
+                    val params: CompletionItem = objectMapper.convertValue(json.params, CompletionItem::class.java)
+                    doResolve(json.id, myCompletionType, params)
                     continue
                 }
 
@@ -87,11 +93,16 @@ class CompletionStarter : ApplicationStarter {
             }
         }
 
+        private fun doResolve(
+            id: Int, completionType: CompletionType, toResolve: CompletionItem
+        ) {
+            completionsService.resolveCompletion(id, completionType, toResolve)
+        }
 
         private fun doAutocomplete(
-            id: Int, position: Position, filePath: String, completionType: CompletionType
+            id: Int, position: Position, context: CompletionContext?, filePath: String, completionType: CompletionType
         ) {
-            completionsService.doAutocomplete(id, position, filePath, completionType)
+            completionsService.doAutocomplete(id, position, context, filePath, completionType)
         }
     }
 }
