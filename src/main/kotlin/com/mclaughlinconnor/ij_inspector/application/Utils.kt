@@ -17,7 +17,7 @@ class Utils {
         fun createDocument(project: Project, filePath: String): Document? {
             val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath) ?: return null
 
-            val document = ReadAction.compute<Document?, RuntimeException> {
+            @Suppress("UnstableApiUsage") val document = ReadAction.compute<Document?, RuntimeException> {
                 FileDocumentManager.getInstance().getDocument(virtualFile, project)
             }
 

@@ -20,6 +20,7 @@ import com.intellij.util.Consumer
 import com.mclaughlinconnor.ij_inspector.application.Utils.Companion.createDocument
 import com.mclaughlinconnor.ij_inspector.application.Utils.Companion.obtainLookup
 import com.mclaughlinconnor.ij_inspector.application.lsp.*
+import com.mclaughlinconnor.ij_inspector.application.lsp.CompletionContext
 
 
 @Suppress("UnstableApiUsage")
@@ -86,11 +87,11 @@ class CompletionsService(
             val resultToResolve = completions.find { completion ->
                 val item = formatResult(completion, filePath, position, triggerCharacter)
 
-                (item.detail ?: "" == toResolve.detail ?: ""
-                        && item.labelDetails?.detail ?: "" == toResolve.labelDetails?.detail ?: ""
-                        && item.labelDetails?.description ?: "" == toResolve.labelDetails?.description ?: ""
+                (((item.detail ?: "") == (toResolve.detail ?: "")
+                        && (item.labelDetails?.detail ?: "") == (toResolve.labelDetails?.detail ?: "")
+                        && (item.labelDetails?.description ?: "") == (toResolve.labelDetails?.description ?: "")
                         && item.insertText == toResolve.insertText
-                        && item.documentation?.value ?: "" == toResolve.documentation?.value ?: "")
+                        && (item.documentation?.value ?: "") == (toResolve.documentation?.value ?: "")))
             } ?: return@fetchCompletions
 
             val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@fetchCompletions

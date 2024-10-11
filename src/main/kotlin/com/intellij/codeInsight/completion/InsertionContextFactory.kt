@@ -4,6 +4,7 @@ import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.openapi.editor.Editor
 import com.intellij.psi.PsiFile
 
+@Suppress("UnstableApiUsage")
 class InsertionContextFactory {
     companion object {
         fun buildInsertionContext(
@@ -17,7 +18,6 @@ class InsertionContextFactory {
             offsetMap: OffsetMap
         ): InsertionContext {
             return CompletionUtil.createInsertionContext(
-                // listOf(resultToResolve.lookupElement),
                 lookupItems,
                 item,
                 completionChar,
