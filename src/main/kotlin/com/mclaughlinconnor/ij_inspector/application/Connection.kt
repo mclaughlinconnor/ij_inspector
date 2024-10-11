@@ -1,11 +1,14 @@
 package com.mclaughlinconnor.ij_inspector.application
 
-import java.io.BufferedReader
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.io.OutputStream
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.io.*
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.BlockingQueue
+import java.util.concurrent.LinkedBlockingQueue
 
 class Connection {
     private lateinit var myInputStream: InputStream
@@ -13,13 +16,15 @@ class Connection {
     private var myReader: BufferedReader? = null
     private lateinit var myServer: ServerSocket
     private lateinit var mySocket: Socket
+    private val messageQueue: BlockingQueue<String> = LinkedBlockingQueue()
+    private val readerScope = CoroutineScope(Dispatchers.IO)
+    private var isRunning = false
 
-    private fun getReader(): BufferedReader {
-        return myReader ?: BufferedReader(InputStreamReader(myInputStream))
-    }
-
-    fun write(message: String) {
-        myOutputStream.write(message.toByteArray())
+    fun close() {
+        isRunning = false
+        readerScope.cancel()
+        mySocket.close()
+        myServer.close()
     }
 
     fun init() {
@@ -27,39 +32,52 @@ class Connection {
         println("Waiting for connection...")
         mySocket = myServer.accept()
         myOutputStream = mySocket.getOutputStream()
-        myInputStream = mySocket.getInputStream()
+        myInputStream = BufferedInputStream(mySocket.getInputStream())
+        isRunning = true
+        startMessageReader()
     }
 
-    fun nextMessage(): String {
-        val reader = getReader()
+    fun nextMessage(): String? {
+        return if (isRunning) {
+            messageQueue.take()
+        } else {
+            null
+        }
+    }
 
-        val header = StringBuilder()
-        val body = StringBuilder()
-        var dividerLen = 0
-        var prevDivider = '\u0000'
+    fun write(message: String) {
+        myOutputStream.write(message.toByteArray())
+        myOutputStream.flush()
+    }
 
-        while (dividerLen < 4) {
-            val c = reader.read()
-            val char = c.toChar()
-            if ((char == '\n' || char == '\r') && char != prevDivider) {
-                dividerLen++
-                prevDivider = char
-            } else {
-                header.append(char)
-                dividerLen = 0
-                prevDivider = '\u0000'
+    private fun getReader(): BufferedReader {
+        return myReader ?: BufferedReader(InputStreamReader(myInputStream), 8192000)
+    }
+
+    private fun startMessageReader() {
+        readerScope.launch {
+            val reader = getReader()
+            while (isRunning) {
+                val message = readMessage(reader)
+                messageQueue.put(message)
             }
         }
+    }
+
+    private fun readMessage(reader: BufferedReader): String {
+        // readLine removes the first \n\r pair. Remove the second pair manually.
+        val header = reader.readLine()
+        reader.read()
+        reader.read()
 
         val contentLengthBytes = header.substring("Content-Length: ".length)
         val contentLength = contentLengthBytes.toInt()
 
-        for (i in 0..contentLength) {
-            val c = reader.read()
-            body.append(c.toChar())
-        }
+        val body = CharArray(81920)
+        reader.read(body, 0, contentLength)
+        reader.read() // read the trailing newline
 
-        return body.toString()
+        return String(body.sliceArray(IntRange(0, contentLength)))
     }
 
     companion object {
