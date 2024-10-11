@@ -4,16 +4,16 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class CompletionItem(
     label: String = "",
-    detail: String = "",
-    documentation: String = "",
+    detail: String? = null,
+    documentation: MarkupContent? = null,
     insertText: String = "",
-    labelDetails: CompletionItemLabelDetails = CompletionItemLabelDetails("", ""),
+    labelDetails: CompletionItemLabelDetails? = null,
     additionalTextEdits: MutableList<TextEdit>? = null,
     textEdit: TextEdit? = null,
     data: CompletionItemData = CompletionItemData("", Position(0, 0), '\u0000')
 ) {
     @JsonProperty
-    val labelDetails: CompletionItemLabelDetails = labelDetails
+    val labelDetails: CompletionItemLabelDetails? = labelDetails
 
     /**
      * The label of this completion item.
@@ -46,13 +46,13 @@ class CompletionItem(
      * about this item, like type or symbol information.
      */
     @JsonProperty
-    val detail: String = detail
+    val detail: String? = detail
 
     /**
      * A human-readable string that represents a doc-comment.
      */
     @JsonProperty
-    val documentation: String = documentation
+    var documentation: MarkupContent? = documentation
 
     /**
      * A string that should be used when comparing this item
