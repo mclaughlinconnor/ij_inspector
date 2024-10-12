@@ -50,7 +50,7 @@ class DocumentationFormatter(val myProject: Project) {
             htmlFile.accept(htmlToMarkdownConverter)
             val result = htmlToMarkdownConverter.result
             htmlToMarkdownConverter.reset()
-            return result
+            return StringUtil.unescapeXmlEntities(result).replace("&nbsp;", " ").replace("&#32;", " ")
         }
 
         private fun handleBottom(tag: XmlTag) {
@@ -61,7 +61,7 @@ class DocumentationFormatter(val myProject: Project) {
                             val src = tag.getAttributeValue("src")
                             if (src != null) {
                                 val name = src.substring("AllIcons.Nodes.".length)
-                                markdownBuilder.append("\\[${name}\\] ")
+                                markdownBuilder.append("${name.uppercase()} ")
                             }
 
                             tag.acceptChildren(this)
