@@ -46,6 +46,7 @@ class CompletionStarter : ApplicationStarter {
         private val objectMapper = ObjectMapper()
         private val completionsService = CompletionsService(myProject)
         private val documentService = DocumentService(myProject)
+        private val hoverService = HoverService(myProject)
 
         fun setReady() {
             ready = true
@@ -97,6 +98,13 @@ class CompletionStarter : ApplicationStarter {
                             objectMapper.convertValue(json.params, DidOpenTextDocumentParams::class.java)
                         val filePath = params.textDocument.uri.substring("file://".length)
                         documentService.doOpen(filePath)
+                        return@executeOnPooledThread
+                    }
+
+                    if (json.method == "textDocument/hover") {
+                        val params: HoverParams =
+                            objectMapper.convertValue(json.params, HoverParams::class.java)
+                        hoverService.doHover(json.id, params)
                         return@executeOnPooledThread
                     }
                 }
