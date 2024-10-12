@@ -95,7 +95,7 @@ class HtmlStripper : XmlRecursiveElementVisitor() {
         }
     }
 
-    private fun getMarkdownForTag(tag: XmlTag, atLineStart: Boolean): MarkdownSpan = when (tag.name) {
+    private fun getMarkdownForTag(tag: XmlTag, atLineStart: Boolean): MarkdownSpan = when (tag.name.lowercase()) {
         "a" -> {
             val href = tag.getAttributeValue("href")
             if (href != null) {

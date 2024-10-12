@@ -158,11 +158,15 @@ class DocumentationFormatter(val myProject: Project) {
         override fun visitXmlTag(tag: XmlTag) {
             if (tag.name == "div") {
                 handleDiv(tag)
+                return
             }
 
             if (tag.name == "table" && tag.getAttributeValue("class") == "sections") {
                 handleSection(tag)
+                return
             }
+
+            super.visitXmlTag(tag)
         }
     }
 }
