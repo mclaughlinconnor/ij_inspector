@@ -30,7 +30,7 @@ class CompletionsService(
     private val connection: Connection = Connection.getInstance()
     private val messageFactory: MessageFactory = MessageFactory()
     private val myApplication: Application = ApplicationManager.getApplication()
-    private val myDocumentationFormatter: DocumentationFormatter = DocumentationFormatter(myProject)
+    private val myDocumentationService: DocumentationService = DocumentationService(myProject)
 
     private fun createIndicator(
         editor: Editor, completionType: CompletionType, initContext: CompletionInitializationContextImpl
@@ -188,21 +188,18 @@ class CompletionsService(
     }
 
     private fun resolveDocumentation(result: CompletionResult, completion: CompletionItem) {
-        val provider = LanguageDocumentation.INSTANCE.forLanguage(result.lookupElement.psiElement!!.language)
+        val element = result.lookupElement.psiElement ?: return
+
+        val provider = LanguageDocumentation.INSTANCE.forLanguage(element.language)
         if (provider != null) {
 
-            println("Starting to generate documentation...")
-            val documentation: String? = provider.generateDoc(result.lookupElement.psiElement, null)
-            println("Finished generating documentation.")
+            val documentation = myDocumentationService.fetchDocumentation(element, null)
+            if (documentation == "") {
+                return
+            }
 
-            val html = documentation ?: return
-            val md = myDocumentationFormatter.format(html)
-            val trimmed = md.trim().replace(Regex("^&nbsp;"), "").trim()
-
-            completion.documentation = MarkupContent(MarkupKind.MARKDOWN, trimmed)
+            completion.documentation = MarkupContent(MarkupKindEnum.MARKDOWN, documentation)
         }
-
-
     }
 
     private fun resolveEdits(
