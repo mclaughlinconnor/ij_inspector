@@ -71,6 +71,8 @@ class DiagnosticService(private val myProject: Project) {
         return resultDiagnostics
     }
 
+    private val lock = Any()
+
     private fun runInspections(
         tools: List<LocalInspectionToolWrapper>,
         file: PsiFile,
@@ -82,18 +84,20 @@ class DiagnosticService(private val myProject: Project) {
         val resultDiagnostics = mutableListOf<Diagnostic>()
         coroutineContext.ensureActive()
 
-        for (tool in tools) {
-            coroutineContext.ensureActive()
-
-            var problems: List<ProblemDescriptor> = listOf()
-            application.runReadAction {
+        synchronized(lock) {
+            for (tool in tools) {
                 coroutineContext.ensureActive()
-                problems = InspectionEngine.runInspectionOnFile(file, tool, context)
-            }
-            val diagnostics = constructDiagnostics(profile, document, tool, problems)
-            resultDiagnostics.addAll(diagnostics)
 
-            coroutineContext.ensureActive()
+                var problems: List<ProblemDescriptor> = listOf()
+                application.runReadAction {
+                    coroutineContext.ensureActive()
+                    problems = InspectionEngine.runInspectionOnFile(file, tool, context)
+                }
+                val diagnostics = constructDiagnostics(profile, document, tool, problems)
+                resultDiagnostics.addAll(diagnostics)
+
+                coroutineContext.ensureActive()
+            }
         }
 
         return resultDiagnostics
