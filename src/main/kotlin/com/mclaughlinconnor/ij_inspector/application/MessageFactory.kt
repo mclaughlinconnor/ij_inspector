@@ -1,12 +1,11 @@
 package com.mclaughlinconnor.ij_inspector.application
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.mclaughlinconnor.ij_inspector.application.lsp.Response
 
 class MessageFactory {
     private var objectMapper = ObjectMapper()
 
-    fun newMessage(data: Response): String {
+    fun newMessage(data: Any): String {
         val text = objectMapper.writeValueAsString(data)
 
         val s = StringBuilder()

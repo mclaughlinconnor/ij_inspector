@@ -2,13 +2,10 @@ package com.mclaughlinconnor.ij_inspector.application.lsp
 
 import com.fasterxml.jackson.annotation.JsonProperty
 
-class Response (
+class DiagnosticRelatedInformation(
     @JsonProperty
-    val id: Int = 0,
+    val location: Location,
 
     @JsonProperty
-    val result: Any = 0,
-) {
-    @JsonProperty
-    val jsonrpc: String = "2.0"
-}
+    val message: String = "",
+)

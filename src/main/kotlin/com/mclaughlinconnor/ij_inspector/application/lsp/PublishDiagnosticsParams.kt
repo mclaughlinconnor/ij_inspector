@@ -2,13 +2,13 @@ package com.mclaughlinconnor.ij_inspector.application.lsp
 
 import com.fasterxml.jackson.annotation.JsonProperty
 
-class Response (
+class PublishDiagnosticsParams(
     @JsonProperty
-    val id: Int = 0,
+    val uri: String = "",
 
     @JsonProperty
-    val result: Any = 0,
-) {
+    val version: Int? = null,
+
     @JsonProperty
-    val jsonrpc: String = "2.0"
-}
+    val diagnostics: List<Diagnostic> = ArrayList(),
+)
