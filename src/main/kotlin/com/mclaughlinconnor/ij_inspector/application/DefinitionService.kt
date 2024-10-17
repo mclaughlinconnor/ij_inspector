@@ -2,16 +2,14 @@ package com.mclaughlinconnor.ij_inspector.application
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiDocumentManager
-import com.intellij.psi.PsiElement
-import com.intellij.psi.PsiNameIdentifierOwner
-import com.intellij.psi.PsiReference
+import com.intellij.openapi.vfs.findDocument
+import com.intellij.psi.*
 import com.intellij.refactoring.suggested.endOffset
 import com.intellij.refactoring.suggested.startOffset
 import com.mclaughlinconnor.ij_inspector.application.Utils.Companion.createDocument
 import com.mclaughlinconnor.ij_inspector.application.lsp.*
+
 
 class DefinitionService(private val myProject: Project) {
     private val connection: Connection = Connection.getInstance()
@@ -37,16 +35,33 @@ class DefinitionService(private val myProject: Project) {
                 return@invokeLater
             }
 
-            val resolved = element.resolve() ?: return@invokeLater
-            val location = resolvedToLocation(resolved, document)
+            val locations: MutableList<Location> = mutableListOf()
 
-            val response = Response(requestId, location)
+            val references = element.references
+            for (ref in references) {
+                if (ref is PsiPolyVariantReference) {
+                    val resolved = ref.multiResolve(true)
+                    for (r in resolved) {
+                        if (r.element != null) {
+                            locations.add(resolvedToLocation(r.element!!))
+                        }
+                    }
+                    continue
+                }
 
+                val resolved = ref.resolve()
+                if (resolved != null) {
+                    locations.add(resolvedToLocation(resolved))
+                }
+            }
+
+            val response = Response(requestId, locations)
             connection.write(messageFactory.newMessage(response))
         }
     }
 
-    private fun resolvedToLocation(resolved: PsiElement, document: Document): Location {
+    private fun resolvedToLocation(resolved: PsiElement): Location {
+        val document = resolved.containingFile.virtualFile.findDocument()!!
         val target = getNameIdentifier(resolved)
 
         val startOffset = target.startOffset
