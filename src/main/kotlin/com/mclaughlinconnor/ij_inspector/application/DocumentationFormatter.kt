@@ -31,7 +31,7 @@ class DocumentationFormatter(val myProject: Project) {
 
 
     inner class Formatter : XmlRecursiveElementVisitor() {
-        private val htmlToMarkdownConverter = HtmlStripper()
+        private val htmlStripper = HtmlStripper()
 
         private val markdownBuilder = StringBuilder("")
 
@@ -47,9 +47,9 @@ class DocumentationFormatter(val myProject: Project) {
             val htmlFile = PsiFileFactory.getInstance(myProject).createFileFromText(
                 "javadoc.html", HtmlFileType.INSTANCE, html
             )
-            htmlFile.accept(htmlToMarkdownConverter)
-            val result = htmlToMarkdownConverter.result
-            htmlToMarkdownConverter.reset()
+            htmlFile.accept(htmlStripper)
+            val result = htmlStripper.result
+            htmlStripper.reset()
             return StringUtil.unescapeXmlEntities(result).replace("&nbsp;", " ").replace("&#32;", " ")
         }
 
