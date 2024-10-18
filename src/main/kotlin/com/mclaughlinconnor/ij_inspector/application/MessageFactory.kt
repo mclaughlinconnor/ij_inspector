@@ -7,10 +7,11 @@ class MessageFactory {
 
     fun newMessage(data: Any): String {
         val text = objectMapper.writeValueAsString(data)
+        val length = text.toByteArray(Charsets.UTF_8).size
 
         val s = StringBuilder()
         s.append("Content-Length: ")
-        s.append(text.length)
+        s.append(length)
         s.append("\r\n\r\n")
         s.append(text)
 
