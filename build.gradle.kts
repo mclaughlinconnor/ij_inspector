@@ -137,9 +137,15 @@ tasks {
 
 intellijPlatformTesting {
     runIde {
-        register("runIdeCompletion") {
+        register("runIdeCompletionIJC") {
             task {
-                args = listOf("completion_inspect", "/home/connor/Development/intellij-community", "/home/connor/Development/intellij-community/platform/util-rt/src/com/intellij/openapi/util/Pair.java")
+                args = listOf("completion_inspect", "/home/connor/Development/intellij-community")
+            }
+        }
+
+        register("runIdeCompletionATOH") {
+            task {
+                args = listOf("completion_inspect", "/home/connor/Development/angular-tour-of-heroes")
             }
         }
 
