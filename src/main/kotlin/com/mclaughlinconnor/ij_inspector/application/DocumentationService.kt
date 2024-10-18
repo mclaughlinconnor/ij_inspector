@@ -1,30 +1,22 @@
-// *all* of this is internal, experimental, or deprecated :(
-@file:Suppress("removal", "DEPRECATION")
-
 package com.mclaughlinconnor.ij_inspector.application
 
-import com.intellij.codeInsight.documentation.DocumentationManager
 import com.intellij.lang.LanguageDocumentation
-import com.intellij.lang.documentation.psi.psiDocumentationTargets
+import com.intellij.lang.documentation.impl.documentationTargets
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.application.readAction
-import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.component1
-import com.intellij.openapi.util.component2
 import com.intellij.platform.backend.documentation.AsyncDocumentation
 import com.intellij.platform.backend.documentation.DocumentationData
 import com.intellij.platform.backend.documentation.DocumentationResult
 import com.intellij.platform.backend.documentation.DocumentationTarget
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.refactoring.suggested.startOffset
 import kotlinx.coroutines.runBlocking
 
 class DocumentationService(myProject: Project) {
     private val myDocumentationFormatter = DocumentationFormatter(myProject)
-
-    // See com.intellij.lang.documentation.impl.TargetsKt.documentationTargets
-    @Suppress("removal")
-    private val documentationManager = DocumentationManager.getInstance(myProject)
+    private val injectedLanguageManager = InjectedLanguageManager.getInstance(myProject)
 
     fun fetchDocumentation(element: PsiElement, originalElement: PsiElement?): String {
         val provider = LanguageDocumentation.INSTANCE.forLanguage(element.language)
@@ -38,11 +30,18 @@ class DocumentationService(myProject: Project) {
         return ""
     }
 
-    @Suppress("UnstableApiUsage", "removal")
-    fun fetchSourceDocumentationForElement(editor: Editor, offset: Int, file: PsiFile): String {
-        val (targetElement, sourceElement) = documentationManager.findTargetElementAndContext(editor, offset, file)
-            ?: return ""
-        val targets = psiDocumentationTargets(targetElement, sourceElement)
+    @Suppress("UnstableApiUsage")
+    fun fetchSourceDocumentationForElement(offset: Int, file: PsiFile): String {
+        var psiFile = file
+        var psiOffset = offset
+
+        val injectedElement = injectedLanguageManager.findInjectedElementAt(file, offset)
+        if (injectedElement != null) {
+            psiFile = injectedElement.containingFile
+            psiOffset = injectedElement.startOffset
+        }
+
+        val targets = documentationTargets(psiFile, psiOffset)
 
         if (targets.isEmpty()) {
             return ""
