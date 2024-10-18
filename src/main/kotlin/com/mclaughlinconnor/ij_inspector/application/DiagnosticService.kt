@@ -63,7 +63,8 @@ class DiagnosticService(private val myProject: Project) {
     private fun fetchDiagnostics(
         file: PsiFile, document: Document, coroutineContext: CoroutineContext
     ): List<Diagnostic> {
-        val tools = getInspectionTools(profileWrapper, file)
+        var tools: List<LocalInspectionToolWrapper> = listOf()
+        application.runReadAction { tools = getInspectionTools(profileWrapper, file) }
         val resultDiagnostics: MutableList<Diagnostic> = ArrayList()
 
         resultDiagnostics.addAll(runInspections(tools, file, context, profile, document, coroutineContext))
