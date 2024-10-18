@@ -127,9 +127,9 @@ class HtmlStripper : XmlRecursiveElementVisitor() {
 
         "s", "del" -> MarkdownSpan.Empty // "s", "del" -> MarkdownSpan.wrap("~~")
 
-        "span", "font", "pre", "icon", "sup", "code", "br", "table" -> MarkdownSpan.Empty
+        "span", "font", "pre", "icon", "sup", "code", "table" -> MarkdownSpan.Empty
 
-        "div" -> MarkdownSpan.prefix("\n")
+        "div", "br" -> MarkdownSpan.prefix("\n")
 
         else -> MarkdownSpan.preserveTag(tag)
     }
