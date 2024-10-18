@@ -26,38 +26,46 @@ class DefinitionService(private val myProject: Project) {
         myApplication.invokeLater {
             val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
 
-            var element = psiFile.findElementAt(cursorOffset)
-            while (element != null && element !is PsiReference) {
-                element = element.parent
-            }
-
-            if (element !is PsiReference) {
-                return@invokeLater
-            }
+            val element = psiFile.findElementAt(cursorOffset)
 
             val locations: MutableList<Location> = mutableListOf()
+            val handleLocation = { location: Location -> locations.add(location) }
+            val onComplete = { connection.write(messageFactory.newMessage(Response(requestId, locations))) }
 
-            val references = element.references
-            for (ref in references) {
-                if (ref is PsiPolyVariantReference) {
-                    val resolved = ref.multiResolve(true)
-                    for (r in resolved) {
-                        if (r.element != null) {
-                            locations.add(resolvedToLocation(r.element!!))
-                        }
+            fetchDefinitions(element, handleLocation, onComplete)
+        }
+    }
+
+    fun fetchDefinitions(e: PsiElement?, handleLocation: (Location) -> Any?, onComplete: () -> Any?) {
+        var element: PsiElement? = e
+
+        while (element != null && element !is PsiReference) {
+            element = element.parent
+        }
+
+        if (element !is PsiReference) {
+            return
+        }
+
+        val references = element.references
+        for (ref in references) {
+            if (ref is PsiPolyVariantReference) {
+                val resolved = ref.multiResolve(true)
+                for (r in resolved) {
+                    if (r.element != null) {
+                        handleLocation(resolvedToLocation(r.element!!))
                     }
-                    continue
                 }
-
-                val resolved = ref.resolve()
-                if (resolved != null) {
-                    locations.add(resolvedToLocation(resolved))
-                }
+                continue
             }
 
-            val response = Response(requestId, locations)
-            connection.write(messageFactory.newMessage(response))
+            val resolved = ref.resolve()
+            if (resolved != null) {
+                handleLocation(resolvedToLocation(resolved))
+            }
         }
+
+        onComplete()
     }
 
     private fun resolvedToLocation(resolved: PsiElement): Location {
