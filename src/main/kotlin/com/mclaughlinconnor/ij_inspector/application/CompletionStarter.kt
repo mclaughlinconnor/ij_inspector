@@ -48,6 +48,7 @@ class CompletionStarter : ApplicationStarter {
         private val documentService = DocumentService(myProject)
         private val definitionService = DefinitionService(myProject)
         private val hoverService = HoverService(myProject)
+        private val referenceService = ReferenceService(myProject)
 
         fun setReady() {
             ready = true
@@ -113,6 +114,13 @@ class CompletionStarter : ApplicationStarter {
                         val params: DefinitionParams =
                             objectMapper.convertValue(json.params, DefinitionParams::class.java)
                         definitionService.doDefinition(json.id, params)
+                        return@executeOnPooledThread
+                    }
+
+                    if (json.method == "textDocument/references") {
+                        val params: ReferenceParams =
+                            objectMapper.convertValue(json.params, ReferenceParams::class.java)
+                        referenceService.doReferences(json.id, params)
                         return@executeOnPooledThread
                     }
                 }
