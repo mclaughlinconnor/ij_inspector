@@ -139,13 +139,13 @@ intellijPlatformTesting {
     runIde {
         register("runIdeCompletionIJC") {
             task {
-                args = listOf("completion_inspect", "/home/connor/Development/intellij-community")
+                args = listOf("ijInspector_inspect", "/home/connor/Development/intellij-community")
             }
         }
 
         register("runIdeCompletionATOH") {
             task {
-                args = listOf("completion_inspect", "/home/connor/Development/angular-tour-of-heroes")
+                args = listOf("ijInspector_inspect", "/home/connor/Development/angular-tour-of-heroes")
             }
         }
 

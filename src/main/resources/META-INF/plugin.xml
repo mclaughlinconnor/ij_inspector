@@ -1,6 +1,6 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
-    <id>com.mclaughlinconnor.ij_inspector</id>
+    <id>com.mclaughlinconnor.ijInspector</id>
     <name>IJ Inspector</name>
     <vendor>Connor McLaughlin</vendor>
 
@@ -9,6 +9,6 @@
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <appStarter id="completion_inspect" implementation="com.mclaughlinconnor.ij_inspector.application.CompletionStarter"/>
+        <appStarter id="ijInspector_inspect" implementation="com.mclaughlinconnor.ijInspector.Starter"/>
     </extensions>
 </idea-plugin>
