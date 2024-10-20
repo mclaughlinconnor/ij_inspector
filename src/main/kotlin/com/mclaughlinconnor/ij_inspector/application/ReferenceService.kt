@@ -54,7 +54,6 @@ class ReferenceService(private val myProject: Project) {
             val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
 
             var element = psiFile.findElementAt(cursorOffset)
-            val cursorElement = element
 
             while (element != null) {
                 when (element) {
@@ -74,7 +73,7 @@ class ReferenceService(private val myProject: Project) {
             val locations: MutableList<Location> = mutableListOf()
 
             if (params.context.includeDeclaration) {
-                definitionService.fetchDefinitions(cursorElement, { l -> locations.add(l) }, {})
+                definitionService.fetchDefinitions(psiFile, cursorOffset, { l -> locations.add(l) }, {})
             }
 
             val onComplete = { connection.write(messageFactory.newMessage(Response(requestId, locations))) }
