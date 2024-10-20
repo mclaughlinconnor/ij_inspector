@@ -1,13 +1,11 @@
 package com.mclaughlinconnor.ij_inspector.application
 
 import com.intellij.find.FindManager
-import com.intellij.find.findUsages.FindUsagesHandlerFactory
-import com.intellij.find.findUsages.FindUsagesManager
-import com.intellij.find.findUsages.FindUsagesOptions
-import com.intellij.find.findUsages.PsiElement2UsageTargetAdapter
+import com.intellij.find.findUsages.*
 import com.intellij.find.impl.FindManagerImpl
 import com.intellij.ide.impl.DataManagerImpl
 import com.intellij.injected.editor.VirtualFileWindow
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
@@ -39,9 +37,10 @@ import java.util.function.Supplier
 // TODO: support streaming the results using $/progress
 class ReferenceService(private val myProject: Project) {
     private val connection: Connection = Connection.getInstance()
+    private val definitionService: DefinitionService = DefinitionService(myProject)
+    private val injectedLanguageManager = InjectedLanguageManager.getInstance(myProject)
     private val messageFactory: MessageFactory = MessageFactory()
     private val myApplication: Application = ApplicationManager.getApplication()
-    private val definitionService: DefinitionService = DefinitionService(myProject)
 
     fun doReferences(requestId: Int, params: ReferenceParams) {
         val filePath = params.textDocument.uri.substring("file://".length)
@@ -81,6 +80,12 @@ class ReferenceService(private val myProject: Project) {
 
             if (element == null) {
                 onComplete()
+            }
+
+            // Possibly find references for both injected and non-injected?
+            val injectedElement = injectedLanguageManager.findInjectedElementAt(psiFile, cursorOffset)
+            if (injectedElement != null) {
+                element = injectedElement
             }
 
             findReferences(element!!, handleUsage, onComplete)
@@ -134,14 +139,9 @@ class ReferenceService(private val myProject: Project) {
     }
 
     private fun findReferences(
-        element: PsiElement,
-        handleUsage: (UsageInfo2UsageAdapter) -> Any?,
-        onComplete: () -> Unit
+        element: PsiElement, handleUsage: (UsageInfo2UsageAdapter) -> Any?, onComplete: () -> Unit
     ) {
-        val findUsagesManager = (FindManager.getInstance(myProject) as FindManagerImpl).findUsagesManager
-        val handler = findUsagesManager.getFindUsagesHandler(
-            element, FindUsagesHandlerFactory.OperationMode.USAGES_WITH_DEFAULT_OPTIONS
-        ) ?: return onComplete()
+        val handler = getHandler(element) ?: return
 
         val options = handler.findUsagesOptions // could be configured?
 
@@ -198,6 +198,37 @@ class ReferenceService(private val myProject: Project) {
                 onComplete()
             }
         }
+    }
+
+    private fun getHandler(element: PsiElement?): FindUsagesHandler? {
+        if (element == null) {
+            return null
+        }
+
+        var psiElement: PsiElement? = element
+
+        val findUsagesManager = (FindManager.getInstance(myProject) as FindManagerImpl).findUsagesManager
+
+        var handler: FindUsagesHandler? = null
+
+        while (handler == null) {
+            if (psiElement == null) {
+                break
+            }
+
+            handler = findUsagesManager.getFindUsagesHandler(
+                psiElement, FindUsagesHandlerFactory.OperationMode.USAGES_WITH_DEFAULT_OPTIONS
+            )
+
+            if (handler == null) {
+                psiElement = psiElement.parent
+                if (psiElement is PsiReference) {
+                    psiElement = psiElement.resolve() ?: psiElement
+                }
+            }
+        }
+
+        return handler
     }
 
     private fun convertToUsageTargets(
