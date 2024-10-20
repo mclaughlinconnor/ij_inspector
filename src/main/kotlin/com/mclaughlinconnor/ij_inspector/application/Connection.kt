@@ -4,7 +4,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import java.io.*
+import java.io.BufferedInputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.BlockingQueue
@@ -13,13 +15,13 @@ import java.util.concurrent.LinkedBlockingQueue
 class Connection {
     private lateinit var myInputStream: InputStream
     private lateinit var myOutputStream: OutputStream
-    private var myReader: BufferedReader? = null
     private lateinit var myServer: ServerSocket
     private lateinit var mySocket: Socket
     private val messageQueue: BlockingQueue<String> = LinkedBlockingQueue()
     private val readerScope = CoroutineScope(Dispatchers.IO)
     private var isRunning = false
 
+    @Suppress("unused")
     fun close() {
         isRunning = false
         readerScope.cancel()
@@ -50,34 +52,50 @@ class Connection {
         myOutputStream.flush()
     }
 
-    private fun getReader(): BufferedReader {
-        return myReader ?: BufferedReader(InputStreamReader(myInputStream), 8192000)
-    }
-
     private fun startMessageReader() {
         readerScope.launch {
-            val reader = getReader()
             while (isRunning) {
-                val message = readMessage(reader)
+                val message = readMessage(myInputStream)
                 messageQueue.put(message)
             }
         }
     }
 
-    private fun readMessage(reader: BufferedReader): String {
-        // readLine removes the first \n\r pair. Remove the second pair manually.
-        val header = reader.readLine()
-        reader.read()
-        reader.read()
+    private fun readMessage(reader: InputStream): String {
+        val header = ByteArray(8192)
 
-        val contentLengthBytes = header.substring("Content-Length: ".length)
-        val contentLength = contentLengthBytes.toInt()
+        val r: Int = '\r'.code
+        val n: Int = '\n'.code
+        var lastDivider = n
+        var dividerLength = 0
+        var b: Int
+        var index = 0
+        while (dividerLength != 4) {
+            b = reader.read()
 
-        val body = CharArray(81920)
+            if (b == n || b == r) {
+                if (b == lastDivider) {
+                    dividerLength = 0
+                    lastDivider = n
+                    index = 0
+                } else {
+                    lastDivider = b
+                    ++dividerLength
+                }
+            } else {
+                header[index] = b.toByte()
+                index++
+            }
+        }
+
+        val contentLengthBytes = header.sliceArray("Content-Length: ".length..<index)
+        val contentLength = String(contentLengthBytes).toInt()
+
+        val body = ByteArray(contentLength)
         reader.read(body, 0, contentLength)
         reader.read() // read the trailing newline
 
-        return String(body.sliceArray(IntRange(0, contentLength)))
+        return String(body)
     }
 
     companion object {
