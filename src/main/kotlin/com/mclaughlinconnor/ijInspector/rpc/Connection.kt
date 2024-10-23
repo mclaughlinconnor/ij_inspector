@@ -35,9 +35,12 @@ class Connection(private val mySocket: Socket) {
     }
 
     fun nextMessage(): String? {
-        return if (isRunning) {
+        return if (isRunning && !mySocket.isClosed) {
             messageQueue.take()
         } else {
+            if (mySocket.isClosed) {
+                this.close()
+            }
             null
         }
     }

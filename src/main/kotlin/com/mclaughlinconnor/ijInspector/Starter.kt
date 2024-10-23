@@ -2,21 +2,25 @@ package com.mclaughlinconnor.ijInspector
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.intellij.codeInsight.completion.CompletionType
+import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationStarter
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.project.impl.ProjectManagerImpl
 import com.jetbrains.rd.util.ConcurrentHashMap
 import com.mclaughlinconnor.ijInspector.languageService.*
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
 import com.mclaughlinconnor.ijInspector.rpc.ConnectionManager
+import com.mclaughlinconnor.ijInspector.rpc.MessageFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.launch
+import java.nio.file.Path
 import java.util.*
 
 /**
@@ -40,43 +44,76 @@ class Starter : ApplicationStarter {
 
         myConnectionManager.start(2517)
 
-        val project = ProjectManager.getInstance().loadAndOpenProject(projectPath) ?: return
-
         scope.launch {
             while (myConnectionManager.running) {
                 val connection = myConnectionManager.nextConnection() ?: break
-                val server = Server(connection, project, completionType)
+                val server = Server(connection, completionType)
                 myApplication.executeOnPooledThread(server)
             }
         }
     }
 
-    inner class Server(private val myConnection: Connection, project: Project, completionType: CompletionType) :
-        Runnable {
-        private val completionsService = CompletionsService(project, myConnection)
-        private val definitionService = DefinitionService(project, myConnection)
-        private val documentService = DocumentService(project, myConnection)
-        private val hoverService = HoverService(project, myConnection)
+    inner class Server(private val myConnection: Connection, private val myCompletionType: CompletionType) : Runnable {
+        private lateinit var completionsService: CompletionsService
+        private lateinit var definitionService: DefinitionService
+        private lateinit var documentService: DocumentService
+        private lateinit var hoverService: HoverService
+        private val initializeService = InitializeService(myConnection)
+        private var messageFactory: MessageFactory = MessageFactory()
         private val objectMapper = ObjectMapper()
-        private val referenceService = ReferenceService(project, myConnection)
-        private var myCompletionType: CompletionType = completionType
+        private lateinit var referenceService: ReferenceService
         private var ready: Boolean = false
 
-        init {
+        fun initServices(project: Project) {
             DumbService.getInstance(project).runWhenSmart {
                 ready = true
             }
+
+            completionsService = CompletionsService(project, myConnection)
+            definitionService = DefinitionService(project, myConnection)
+            documentService = DocumentService(project, myConnection)
+            hoverService = HoverService(project, myConnection)
+            referenceService = ReferenceService(project, myConnection)
         }
 
         override fun run() {
             while (true) {
                 val body = myConnection.nextMessage() ?: break
 
+                val json = objectMapper.readValue(body, Request::class.java)
+
+                if (json.method == "initialize") {
+                    val params: InitializeParams =
+                        objectMapper.convertValue(json.params, InitializeParams::class.java)
+
+                    val projectUri = initializeService.doInitialize(json.id, params) ?: continue
+                    val openProjectTask = OpenProjectTask {
+                        forceOpenInNewFrame = true
+                        isNewProject = false
+                    }
+                    val project = (ProjectManager.getInstance() as ProjectManagerImpl).openProject(
+                        Path.of(projectUri),
+                        openProjectTask
+                    ) ?: continue
+
+                    initServices(project)
+
+                    continue
+                }
+
+                if (json.method == "shutdown") {
+                    myConnection.write(messageFactory.newMessage(Response(json.id)))
+                    continue
+                }
+
+                if (json.method == "exit") {
+                    break
+                }
+
                 if (!ready) {
                     continue
                 }
 
-                val json = objectMapper.readValue(body, Request::class.java)
                 if (json.method == "textDocument/completion") {
                     val params: CompletionParams =
                         objectMapper.convertValue(json.params, CompletionParams::class.java)

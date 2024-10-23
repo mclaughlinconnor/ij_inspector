@@ -2,13 +2,10 @@ package com.mclaughlinconnor.ijInspector.lsp
 
 import com.fasterxml.jackson.annotation.JsonProperty
 
-class Response (
+class InitializeResult(
     @JsonProperty
-    val id: Int = 0,
+    val capabilities: ServerCapabilities = ServerCapabilities.EMPTY,
 
     @JsonProperty
-    val result: Any? = null,
-) {
-    @JsonProperty
-    val jsonrpc: String = "2.0"
-}
+    val serverInfo: Any? = null,
+)
