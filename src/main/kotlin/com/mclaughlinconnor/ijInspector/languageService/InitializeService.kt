@@ -8,8 +8,9 @@ class InitializeService(
     private val myConnection: Connection
 ) {
     private val messageFactory: MessageFactory = MessageFactory()
+    private var pendingResponse: Response? = null
 
-    fun doInitialize(requestId: Int, params: InitializeParams): String? {
+    fun startInitialise(requestId: Int, params: InitializeParams): String? {
         val serverCapabilities = ServerCapabilities(
             completionProvider = CompletionOptions(
                 resolveProvider = true,
@@ -24,10 +25,23 @@ class InitializeService(
             )
         )
         val result = InitializeResult(serverCapabilities)
-        val response = Response(requestId, result)
+        pendingResponse = Response(requestId, result)
 
-        myConnection.write(messageFactory.newMessage(response))
+        if (params.rootUri != null) {
+            if (params.rootUri.startsWith("file://")) {
+                return params.rootUri.substring("file://".length)
+            }
 
-        return params.rootUri ?: params.rootPath
+            return params.rootUri
+        }
+
+        return params.rootPath
+    }
+
+    fun finishInitialise() {
+        if (pendingResponse != null) {
+            myConnection.write(messageFactory.newMessage(pendingResponse!!))
+            pendingResponse = null
+        }
     }
 }

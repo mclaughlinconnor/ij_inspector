@@ -3,25 +3,19 @@ package com.mclaughlinconnor.ijInspector
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.ide.impl.OpenProjectTask
+import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationStarter
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
-import com.intellij.openapi.project.impl.ProjectManagerImpl
-import com.jetbrains.rd.util.ConcurrentHashMap
 import com.mclaughlinconnor.ijInspector.languageService.*
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
 import com.mclaughlinconnor.ijInspector.rpc.ConnectionManager
 import com.mclaughlinconnor.ijInspector.rpc.MessageFactory
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Runnable
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import java.nio.file.Path
-import java.util.*
 
 /**
  * Gets completions at the cursor using the project and filename provided as arguments.
@@ -36,10 +30,8 @@ class Starter : ApplicationStarter {
     private var myApplication: Application = ApplicationManager.getApplication()
     private var myConnectionManager: ConnectionManager = ConnectionManager.getInstance()
     private val scope = CoroutineScope(Dispatchers.Default)
-    private val servers: Set<Server> = Collections.newSetFromMap(ConcurrentHashMap())
 
     override fun main(args: List<String>) {
-        val projectPath = args[1]
         val completionType = CompletionType.BASIC
 
         myConnectionManager.start(2517)
@@ -56,6 +48,7 @@ class Starter : ApplicationStarter {
     inner class Server(private val myConnection: Connection, private val myCompletionType: CompletionType) : Runnable {
         private lateinit var completionsService: CompletionsService
         private lateinit var definitionService: DefinitionService
+        private lateinit var diagnosticService: DiagnosticService
         private lateinit var documentService: DocumentService
         private lateinit var hoverService: HoverService
         private val initializeService = InitializeService(myConnection)
@@ -64,16 +57,17 @@ class Starter : ApplicationStarter {
         private lateinit var referenceService: ReferenceService
         private var ready: Boolean = false
 
-        fun initServices(project: Project) {
+        private fun initServices(project: Project) {
             DumbService.getInstance(project).runWhenSmart {
                 ready = true
             }
 
             completionsService = CompletionsService(project, myConnection)
             definitionService = DefinitionService(project, myConnection)
-            documentService = DocumentService(project, myConnection)
+            documentService = DocumentService(project)
             hoverService = HoverService(project, myConnection)
             referenceService = ReferenceService(project, myConnection)
+            diagnosticService = DiagnosticService(project, myConnection)
         }
 
         override fun run() {
@@ -86,17 +80,24 @@ class Starter : ApplicationStarter {
                     val params: InitializeParams =
                         objectMapper.convertValue(json.params, InitializeParams::class.java)
 
-                    val projectUri = initializeService.doInitialize(json.id, params) ?: continue
+                    val projectUri = initializeService.startInitialise(json.id, params) ?: continue
                     val openProjectTask = OpenProjectTask {
                         forceOpenInNewFrame = true
                         isNewProject = false
+                        preventIprLookup = true
                     }
-                    val project = (ProjectManager.getInstance() as ProjectManagerImpl).openProject(
-                        Path.of(projectUri),
-                        openProjectTask
-                    ) ?: continue
 
-                    initServices(project)
+                    var project: Project?
+                    runBlocking {
+                        project = ProjectUtil.openOrImportAsync(Path.of(projectUri), openProjectTask)
+                    }
+
+                    if (project == null) {
+                        return
+                    }
+
+                    initServices(project!!)
+                    initializeService.finishInitialise()
 
                     continue
                 }

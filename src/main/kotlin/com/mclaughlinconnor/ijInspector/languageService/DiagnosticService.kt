@@ -1,29 +1,21 @@
 package com.mclaughlinconnor.ijInspector.languageService
 
-import com.intellij.codeHighlighting.HighlightDisplayLevel
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.HighlightDisplayKey
-import com.intellij.codeInspection.GlobalInspectionContext
-import com.intellij.codeInspection.InspectionEngine
-import com.intellij.codeInspection.InspectionManager
-import com.intellij.codeInspection.ProblemDescriptor
-import com.intellij.codeInspection.ex.*
-import com.intellij.lang.Language
+import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
+import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectTypeService
+import com.intellij.openapi.vfs.findDocument
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
 import com.intellij.psi.PsiDocumentManager
-import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import com.intellij.refactoring.suggested.endOffset
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.util.messages.MessageBusConnection
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
-import kotlinx.coroutines.*
-import java.util.concurrent.ConcurrentHashMap
-import kotlin.coroutines.CoroutineContext
 
 
 class DiagnosticService(
@@ -32,113 +24,82 @@ class DiagnosticService(
 ) {
     private val application = ApplicationManager.getApplication()
     private val messageFactory = com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
-
     private val profile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
-    private val profileWrapper = InspectionProfileWrapper(profile)
-    private val context = InspectionManager.getInstance(myProject).createNewGlobalContext()
 
-    private val scope = CoroutineScope(Dispatchers.Default)
-    private val jobs = ConcurrentHashMap<Document, Job>()
+    private lateinit var codeAnalyzer: DaemonCodeAnalyzerImpl
+    private var connection: MessageBusConnection? = null
 
-    fun computeAndPublish(document: Document) {
-        val file = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return
-        if (jobs[document] != null) {
-            jobs[document]?.cancel()
-            jobs.remove(document)
+    init {
+        application.runReadAction {
+            codeAnalyzer = DaemonCodeAnalyzer.getInstance(myProject) as DaemonCodeAnalyzerImpl
         }
-
-        val job = scope.launch {
-            val diagnostics = fetchDiagnostics(file, document, coroutineContext)
-
-            val publishDiagnosticsParams =
-                PublishDiagnosticsParams("file://${file.virtualFile.path}", null, diagnostics)
-            val notification = Notification("textDocument/publishDiagnostics", publishDiagnosticsParams)
-            val message = messageFactory.newMessage(notification)
-
-            myConnection.write(message)
-
-            jobs.remove(document)
-        }
-
-        jobs[document] = job
+        startListening()
     }
 
-    private fun fetchDiagnostics(
-        file: PsiFile, document: Document, coroutineContext: CoroutineContext
-    ): List<Diagnostic> {
-        var tools: List<LocalInspectionToolWrapper> = listOf()
-        application.runReadAction { tools = getInspectionTools(profileWrapper, file) }
-        val resultDiagnostics: MutableList<Diagnostic> = ArrayList()
+    private fun startListening() {
+        connection = myProject.messageBus.connect()
 
-        resultDiagnostics.addAll(runInspections(tools, file, context, profile, document, coroutineContext))
+        connection?.subscribe(DaemonCodeAnalyzer.DAEMON_EVENT_TOPIC, object : DaemonCodeAnalyzer.DaemonListener {
+            override fun daemonStarting(fileEditors: MutableCollection<out FileEditor>) {
+            }
 
-        return resultDiagnostics
+            override fun daemonFinished(fileEditors: MutableCollection<out FileEditor>) {
+                onDaemonCompleted(fileEditors)
+            }
+
+            override fun daemonCanceled(reason: String, fileEditors: MutableCollection<out FileEditor>) {
+                onDaemonCompleted(fileEditors)
+            }
+        })
     }
 
-    private val lock = Any()
-
-    private fun runInspections(
-        tools: List<LocalInspectionToolWrapper>,
-        file: PsiFile,
-        context: GlobalInspectionContext,
-        profile: InspectionProfileImpl,
-        document: Document,
-        coroutineContext: CoroutineContext
-    ): List<Diagnostic> {
-        val resultDiagnostics = mutableListOf<Diagnostic>()
-        coroutineContext.ensureActive()
-
-        synchronized(lock) {
-            for (tool in tools) {
-                coroutineContext.ensureActive()
-
-                var problems: List<ProblemDescriptor> = listOf()
+    private fun onDaemonCompleted(fileEditors: MutableCollection<out FileEditor>) {
+        for (fileEditor in fileEditors) {
+            application.invokeLater {
                 application.runReadAction {
-                    coroutineContext.ensureActive()
-                    problems = InspectionEngine.runInspectionOnFile(file, tool, context)
-                }
-                val diagnostics = constructDiagnostics(profile, document, tool, problems)
-                resultDiagnostics.addAll(diagnostics)
+                    val document = fileEditor.file.findDocument() ?: return@runReadAction
+                    val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@runReadAction
 
-                coroutineContext.ensureActive()
+                    val highlights = DaemonCodeAnalyzerImpl.getHighlights(
+                        document,
+                        HighlightSeverity.GENERIC_SERVER_ERROR_OR_WARNING,
+                        myProject
+                    )
+                    val diagnostics: MutableList<Diagnostic> = mutableListOf()
+                    for (highlight in highlights) {
+                        diagnostics.add(constructDiagnostic(highlight, document))
+                    }
+
+                    publishDiagnostics(psiFile, diagnostics)
+                }
+            }
+        }
+    }
+
+    private fun publishDiagnostics(file: PsiFile, diagnostics: List<Diagnostic>) {
+        val publishDiagnosticsParams =
+            PublishDiagnosticsParams("file://${file.virtualFile.path}", null, diagnostics)
+        val notification = Notification("textDocument/publishDiagnostics", publishDiagnosticsParams)
+        val message = messageFactory.newMessage(notification)
+
+        myConnection.write(message)
+    }
+
+    private fun constructDiagnostic(highlighter: HighlightInfo, document: Document): Diagnostic {
+        var severity = DiagnosticSeverityEnum.Information
+
+        val message: String = highlighter.description ?: "" // can somehow be null without types saying so
+        val toolName: String? = highlighter.inspectionToolId
+        if (toolName != null) {
+            val displayKey = HighlightDisplayKey.findById(toolName)
+            if (displayKey != null) {
+                severity = convertSeverity(profile.getErrorLevel(displayKey, null).severity)
             }
         }
 
-        return resultDiagnostics
-    }
+        val startOffset = highlighter.startOffset
+        val endOffset = highlighter.endOffset
 
-    private fun constructDiagnostics(
-        profile: InspectionProfileImpl,
-        document: Document,
-        tool: LocalInspectionToolWrapper,
-        problems: List<ProblemDescriptor>
-    ): List<Diagnostic> {
-        val displayKey = HighlightDisplayKey.find(tool.shortName)
-        val errorLevel = profile.getErrorLevel(displayKey!!, null)
-        val toolName = tool.shortName
-
-        val diagnostics: MutableList<Diagnostic> = ArrayList(problems.size)
-
-        for (problem in problems) {
-            diagnostics.add(constructDiagnostic(document, errorLevel, toolName, problem))
-        }
-
-        return diagnostics
-    }
-
-    private fun constructDiagnostic(
-        document: Document, severity: HighlightDisplayLevel, toolName: String, problem: ProblemDescriptor
-    ): Diagnostic {
-        var startElement: PsiElement? = null
-        var endElement: PsiElement? = null
-
-        application.runReadAction {
-            startElement = problem.startElement
-            endElement = problem.endElement
-        }
-
-        val startOffset = startElement!!.startOffset
-        val endOffset = endElement!!.endOffset
 
         val startLine = document.getLineNumber(startOffset)
         val endLine = document.getLineNumber(endOffset)
@@ -151,10 +112,10 @@ class DiagnosticService(
 
         return Diagnostic(
             Range(startPosition, endPosition),
-            severity = convertSeverity(severity.severity),
+            severity,
             code = toolName,
             codeDescription = null,
-            message = problem.tooltipTemplate,
+            message,
             tags = null,
             relatedInformation = null,
             data = null
@@ -162,8 +123,7 @@ class DiagnosticService(
     }
 
     private fun convertSeverity(severity: HighlightSeverity): DiagnosticSeverity {
-        @Suppress("DEPRECATION")
-        return when (severity) {
+        @Suppress("DEPRECATION") return when (severity) {
             HighlightSeverity.INFORMATION -> DiagnosticSeverityEnum.Hint
             HighlightSeverity.TEXT_ATTRIBUTES -> DiagnosticSeverityEnum.Information
             HighlightSeverity.GENERIC_SERVER_ERROR_OR_WARNING -> DiagnosticSeverityEnum.Warning
@@ -173,57 +133,5 @@ class DiagnosticService(
             HighlightSeverity.ERROR -> DiagnosticSeverityEnum.Error
             else -> DiagnosticSeverityEnum.Error
         }
-    }
-
-    // Adapted from com.intellij.codeInsight.daemon.impl.LocalInspectionsPass.getInspectionTools
-    private fun getInspectionTools(profile: InspectionProfileWrapper, file: PsiFile): List<LocalInspectionToolWrapper> {
-        var toolWrappers: MutableList<InspectionToolWrapper<*, *>> = mutableListOf()
-        application.runReadAction {
-            toolWrappers = profile.inspectionProfile.getInspectionTools(file)
-        }
-
-        val enabled: MutableList<LocalInspectionToolWrapper> = java.util.ArrayList()
-        val projectTypes = ProjectTypeService.getProjectTypeIds(myProject)
-
-        for (toolWrapper in toolWrappers) {
-            if (!toolWrapper.isApplicable(projectTypes)) continue
-
-            val key = toolWrapper.displayKey
-            if (!shouldIncludeTool(key, file)) {
-                continue
-            }
-
-            var wrapper: LocalInspectionToolWrapper?
-            if (toolWrapper is LocalInspectionToolWrapper) {
-                wrapper = toolWrapper
-            } else {
-                wrapper = (toolWrapper as GlobalInspectionToolWrapper).sharedLocalInspectionToolWrapper
-                if (wrapper == null) continue
-            }
-            val language = wrapper.language
-            if (language != null && Language.findLanguageByID(language) == null) {
-                continue  // filter out at least unknown languages
-            }
-
-            // inspections that do not match file language are excluded later in InspectionRunner.inspect
-            if (wrapper.isApplicable(file.language) && wrapper.tool.isSuppressedFor(file)) continue
-
-            enabled.add(wrapper)
-        }
-
-        return enabled
-    }
-
-    private fun shouldIncludeTool(key: HighlightDisplayKey?, file: PsiFile): Boolean {
-        if (key == null) {
-            return false
-        }
-
-        if (!profile.isToolEnabled(key, file)) {
-            return false
-        }
-
-        return HighlightDisplayLevel.DO_NOT_SHOW != profileWrapper.getErrorLevel(key, file)
-                && profile.getErrorLevel(key, file) != HighlightDisplayLevel.CONSIDERATION_ATTRIBUTES
     }
 }
