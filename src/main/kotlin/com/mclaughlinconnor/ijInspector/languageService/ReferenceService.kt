@@ -156,6 +156,7 @@ class ReferenceService(
         val scopeSupplier: Supplier<SearchScope> = getMaxSearchScopeToWarnOfFallingOutOf(searchFor)
 
         val boundaryScope = ReadAction.compute<SearchScope, RuntimeException> { scopeSupplier.get() }
+        val everythingScope = GlobalSearchScope.everythingScope(myProject)
         val atomicUsageCount = AtomicInteger(0)
 
         val usageSearcher = FindUsagesManager.createUsageSearcher(
@@ -168,7 +169,7 @@ class ReferenceService(
                 try {
                     ProgressManager.getInstance().runProcess({
                         usageSearcher.generate { usage: Usage? ->
-                            if (!UsageViewManagerImpl.isInScope(usage!!, boundaryScope)) {
+                            if (!UsageViewManagerImpl.isInScope(usage!!, boundaryScope, everythingScope)) {
                                 return@generate true
                             }
 
