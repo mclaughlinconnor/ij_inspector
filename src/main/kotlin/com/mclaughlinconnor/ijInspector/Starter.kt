@@ -60,6 +60,7 @@ class Starter : ApplicationStarter {
         private fun initServices(project: Project) {
             DumbService.getInstance(project).runWhenSmart {
                 ready = true
+                initializeService.finishInitialise()
             }
 
             completionsService = CompletionsService(project, myConnection)
@@ -97,7 +98,6 @@ class Starter : ApplicationStarter {
                     }
 
                     initServices(project!!)
-                    initializeService.finishInitialise()
 
                     continue
                 }
