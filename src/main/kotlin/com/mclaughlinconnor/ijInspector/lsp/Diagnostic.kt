@@ -16,7 +16,7 @@ class Diagnostic(
     val codeDescription: CodeDescription? = null,
 
     @JsonProperty
-    val message: String,
+    val message: String = "",
 
     @JsonProperty
     val tags: List<DiagnosticTag>? = null,

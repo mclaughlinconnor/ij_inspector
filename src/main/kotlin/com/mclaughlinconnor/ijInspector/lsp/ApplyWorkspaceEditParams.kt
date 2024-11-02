@@ -2,7 +2,10 @@ package com.mclaughlinconnor.ijInspector.lsp
 
 import com.fasterxml.jackson.annotation.JsonProperty
 
-open class TextDocumentIdentifier(
+class ApplyWorkspaceEditParams(
     @JsonProperty
-    val uri: String = ""
+    val label: String?,
+
+    @JsonProperty
+    val edit: WorkspaceEdit?
 )

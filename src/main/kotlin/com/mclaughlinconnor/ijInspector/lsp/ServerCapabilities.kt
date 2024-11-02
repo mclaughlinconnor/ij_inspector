@@ -70,7 +70,7 @@ class ServerCapabilities(
     val foldingRangeProvider: Boolean? = null,
 
     @JsonProperty
-    val executeCommandProvider: Any? = null,
+    val executeCommandProvider: ExecuteCommandOptions? = null,
 
     @JsonProperty
     val selectionRangeProvider: Boolean? = null,

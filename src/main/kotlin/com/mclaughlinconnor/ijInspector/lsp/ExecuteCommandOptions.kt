@@ -2,7 +2,7 @@ package com.mclaughlinconnor.ijInspector.lsp
 
 import com.fasterxml.jackson.annotation.JsonProperty
 
-open class TextDocumentIdentifier(
+class ExecuteCommandOptions(
     @JsonProperty
-    val uri: String = ""
+    val commands: Array<String> = arrayOf()
 )

@@ -22,7 +22,9 @@ class InitializeService(
             diagnosticProvider = DiagnosticOptions(
                 interFileDependencies = false,
                 workspaceDiagnostics = false
-            )
+            ),
+            codeActionProvider = true,
+            executeCommandProvider = ExecuteCommandOptions(arrayOf(CODE_ACTION_COMMAND))
         )
         val result = InitializeResult(serverCapabilities)
         pendingResponse = Response(requestId, result)

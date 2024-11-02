@@ -46,6 +46,8 @@ class Starter : ApplicationStarter {
     }
 
     inner class Server(private val myConnection: Connection, private val myCompletionType: CompletionType) : Runnable {
+        private lateinit var codeActionService: CodeActionService
+        private lateinit var commandService: CommandService
         private lateinit var completionsService: CompletionsService
         private lateinit var definitionService: DefinitionService
         private lateinit var diagnosticService: DiagnosticService
@@ -63,19 +65,28 @@ class Starter : ApplicationStarter {
                 initializeService.finishInitialise()
             }
 
+            codeActionService = CodeActionService(project, myConnection)
+            commandService = CommandService(project, myConnection)
             completionsService = CompletionsService(project, myConnection)
             definitionService = DefinitionService(project, myConnection)
+            diagnosticService = DiagnosticService(project, myConnection)
             documentService = DocumentService(project)
             hoverService = HoverService(project, myConnection)
             referenceService = ReferenceService(project, myConnection)
-            diagnosticService = DiagnosticService(project, myConnection)
         }
 
         override fun run() {
             while (true) {
                 val body = myConnection.nextMessage() ?: break
 
-                val json = objectMapper.readValue(body, Request::class.java)
+                val json: Request
+                try {
+                    json = objectMapper.readValue(body, Request::class.java)
+                } catch (e: Exception) {
+                    // Added to allow receiving `Response`s back from the client again
+                    println(e)
+                    continue
+                }
 
                 if (json.method == "initialize") {
                     val params: InitializeParams =
@@ -169,6 +180,20 @@ class Starter : ApplicationStarter {
                     val params: ReferenceParams =
                         objectMapper.convertValue(json.params, ReferenceParams::class.java)
                     referenceService.doReferences(json.id, params)
+                    continue
+                }
+
+                if (json.method == "textDocument/codeAction") {
+                    val params: CodeActionParams =
+                        objectMapper.convertValue(json.params, CodeActionParams::class.java)
+                    codeActionService.doCodeActions(json.id, params)
+                    continue
+                }
+
+                if (json.method == "workspace/executeCommand") {
+                    val params: ExecuteCommandParams =
+                        objectMapper.convertValue(json.params, ExecuteCommandParams::class.java)
+                    commandService.executeCommand(json.id, params)
                     continue
                 }
             }
