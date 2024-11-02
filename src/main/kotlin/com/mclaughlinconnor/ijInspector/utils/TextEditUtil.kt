@@ -17,7 +17,7 @@ class TextEditUtil {
         fun computeTextEdits(
             textBefore: String,
             textAfter: String
-        ): Pair<MutableList<TextEdit>, MutableList<LineFragment>> {
+        ): Pair<List<TextEdit>, List<LineFragment>> {
             val documentBefore = DocumentImpl(textBefore)
             val documentAfter = DocumentImpl(textAfter)
 

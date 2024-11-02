@@ -243,13 +243,13 @@ class CompletionsService(
         }
 
         val editPair = TextEditUtil.computeTextEdits(beforeText, afterText)
-        val edits = editPair.first
+        val edits = editPair.first.toMutableList()
         val fragments = editPair.second
 
         val alreadyInsertedLength =
             resultToResolve.lookupElement.lookupString.length - resultToResolve.prefixMatcher.prefix.length
 
-        for (i in 0..<fragments.size) {
+        for (i in fragments.indices) {
             if (fragments[i].startOffset2 <= afterCursorOffset!! && afterCursorOffset!! <= fragments[i].endOffset2) {
                 val primaryEdit = edits[i]
 
