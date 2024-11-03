@@ -1,6 +1,8 @@
 package com.mclaughlinconnor.ijInspector
 
+import com.fasterxml.jackson.databind.JsonMappingException
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.exc.InvalidDefinitionException
 import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
@@ -79,126 +81,208 @@ class Starter : ApplicationStarter {
             while (true) {
                 val body = myConnection.nextMessage() ?: break
 
-                val json: Request
-                try {
-                    json = objectMapper.readValue(body, Request::class.java)
-                } catch (e: Exception) {
-                    // Added to allow receiving `Response`s back from the client again
-                    println(e)
+                if (tryHandleRequest(body)) {
                     continue
                 }
 
-                if (json.method == "initialize") {
-                    val params: InitializeParams =
-                        objectMapper.convertValue(json.params, InitializeParams::class.java)
-
-                    val projectUri = initializeService.startInitialise(json.id, params) ?: continue
-                    val openProjectTask = OpenProjectTask {
-                        forceOpenInNewFrame = true
-                        isNewProject = false
-                        preventIprLookup = true
-                    }
-
-                    var project: Project?
-                    runBlocking {
-                        project = ProjectUtil.openOrImportAsync(Path.of(projectUri), openProjectTask)
-                    }
-
-                    if (project == null) {
-                        return
-                    }
-
-                    initServices(project!!)
-
+                if (tryHandleResponse(body)) {
                     continue
                 }
 
-                if (json.method == "shutdown") {
-                    myConnection.write(messageFactory.newMessage(Response(json.id)))
-                    continue
-                }
-
-                if (json.method == "exit") {
-                    break
-                }
-
-                if (!ready) {
-                    continue
-                }
-
-                if (json.method == "textDocument/completion") {
-                    val params: CompletionParams =
-                        objectMapper.convertValue(json.params, CompletionParams::class.java)
-                    val fileUri = params.textDocument.uri.substring("file://".length)
-                    completionsService.doAutocomplete(
-                        json.id,
-                        params.position,
-                        params.context,
-                        fileUri,
-                        myCompletionType
-                    )
-                    continue
-                }
-
-                if (json.method == "completionItem/resolve") {
-                    val params: CompletionItem = objectMapper.convertValue(json.params, CompletionItem::class.java)
-                    completionsService.resolveCompletion(json.id, myCompletionType, params)
-                    continue
-                }
-
-                if (json.method == "textDocument/didChange") {
-                    val params: DidChangeTextDocumentParams =
-                        objectMapper.convertValue(json.params, DidChangeTextDocumentParams::class.java)
-                    val filePath = params.textDocument.uri.substring("file://".length)
-                    documentService.handleChange(filePath, params)
-                    continue
-                }
-
-                if (json.method == "textDocument/didOpen") {
-                    val params: DidOpenTextDocumentParams =
-                        objectMapper.convertValue(json.params, DidOpenTextDocumentParams::class.java)
-                    val filePath = params.textDocument.uri.substring("file://".length)
-                    documentService.doOpen(filePath)
-                    continue
-                }
-
-                if (json.method == "textDocument/hover") {
-                    val params: HoverParams =
-                        objectMapper.convertValue(json.params, HoverParams::class.java)
-                    hoverService.doHover(json.id, params)
-                    continue
-                }
-
-                if (json.method == "textDocument/definition") {
-                    val params: DefinitionParams =
-                        objectMapper.convertValue(json.params, DefinitionParams::class.java)
-                    definitionService.doDefinition(json.id, params)
-                    continue
-                }
-
-                if (json.method == "textDocument/references") {
-                    val params: ReferenceParams =
-                        objectMapper.convertValue(json.params, ReferenceParams::class.java)
-                    referenceService.doReferences(json.id, params)
-                    continue
-                }
-
-                if (json.method == "textDocument/codeAction") {
-                    val params: CodeActionParams =
-                        objectMapper.convertValue(json.params, CodeActionParams::class.java)
-                    codeActionService.doCodeActions(json.id, params)
-                    continue
-                }
-
-                if (json.method == "workspace/executeCommand") {
-                    val params: ExecuteCommandParams =
-                        objectMapper.convertValue(json.params, ExecuteCommandParams::class.java)
-                    commandService.executeCommand(json.id, params)
+                if (tryHandleNotification(body)) {
                     continue
                 }
             }
+        }
 
-            myConnection.close()
+        private fun tryHandleNotification(body: String): Boolean {
+            val notification: Notification
+            try {
+                notification = objectMapper.readValue(body, Notification::class.java)
+            } catch (e: JsonMappingException) {
+                if (e is InvalidDefinitionException) {
+                    throw e
+                }
+
+                return false
+            }
+
+            handleNotification(notification)
+
+            return true
+        }
+
+        private fun tryHandleResponse(body: String): Boolean {
+            try {
+                objectMapper.readValue(body, Response::class.java)
+            } catch (e: JsonMappingException) {
+                if (e is InvalidDefinitionException) {
+                    throw e
+                }
+
+                return false
+            }
+
+            handleResponse()
+
+            return true
+        }
+
+        private fun tryHandleRequest(body: String): Boolean {
+            val request: Request
+            try {
+                request = objectMapper.readValue(body, Request::class.java)
+            } catch (e: JsonMappingException) {
+                if (e is InvalidDefinitionException) {
+                    throw e
+                }
+
+                return false
+            }
+
+            if (request.id == Int.MIN_VALUE) {
+                return false
+            }
+
+            handleRequest(request)
+
+            return true
+        }
+
+        private fun handleNotification(notification: Notification) {
+            if (notification.method == "workspace/didCreateFiles") {
+                val params: CreateFilesParams =
+                    objectMapper.convertValue(notification.params, CreateFilesParams::class.java)
+                documentService.didCreateFiles(params)
+                return
+            }
+
+            if (notification.method == "workspace/didDeleteFiles") {
+                val params: DeleteFilesParams =
+                    objectMapper.convertValue(notification.params, DeleteFilesParams::class.java)
+                documentService.didDeleteFiles(params)
+                return
+            }
+
+            if (notification.method == "workspace/didRenameFiles") {
+                val params: RenameFilesParams =
+                    objectMapper.convertValue(notification.params, RenameFilesParams::class.java)
+                documentService.didRenameFiles(params)
+                return
+            }
+
+            if (notification.method == "textDocument/didChange") {
+                val params: DidChangeTextDocumentParams =
+                    objectMapper.convertValue(notification.params, DidChangeTextDocumentParams::class.java)
+                val filePath = params.textDocument.uri.substring("file://".length)
+                documentService.handleChange(filePath, params)
+                return
+            }
+
+            if (notification.method == "textDocument/didOpen") {
+                val params: DidOpenTextDocumentParams =
+                    objectMapper.convertValue(notification.params, DidOpenTextDocumentParams::class.java)
+                val filePath = params.textDocument.uri.substring("file://".length)
+                documentService.doOpen(filePath)
+                return
+            }
+        }
+
+        private fun handleResponse() {}
+
+        private fun handleRequest(request: Request) {
+            if (request.method == "initialize") {
+                val params: InitializeParams =
+                    objectMapper.convertValue(request.params, InitializeParams::class.java)
+
+                val projectUri = initializeService.startInitialise(request.id, params) ?: return
+                val openProjectTask = OpenProjectTask {
+                    forceOpenInNewFrame = true
+                    isNewProject = false
+                    preventIprLookup = true
+                }
+
+                var project: Project?
+                runBlocking {
+                    project = ProjectUtil.openOrImportAsync(Path.of(projectUri), openProjectTask)
+                }
+
+                if (project == null) {
+                    return
+                }
+
+                initServices(project!!)
+
+                return
+            }
+
+            if (request.method == "shutdown") {
+                myConnection.write(messageFactory.newMessage(Response(request.id)))
+                return
+            }
+
+            if (request.method == "exit") {
+                myConnection.close()
+            }
+
+            if (!ready) {
+                return
+            }
+
+            if (request.method == "textDocument/completion") {
+                val params: CompletionParams =
+                    objectMapper.convertValue(request.params, CompletionParams::class.java)
+                val fileUri = params.textDocument.uri.substring("file://".length)
+                completionsService.doAutocomplete(
+                    request.id,
+                    params.position,
+                    params.context,
+                    fileUri,
+                    myCompletionType
+                )
+                return
+            }
+
+            if (request.method == "completionItem/resolve") {
+                val params: CompletionItem = objectMapper.convertValue(request.params, CompletionItem::class.java)
+                completionsService.resolveCompletion(request.id, myCompletionType, params)
+                return
+            }
+
+            if (request.method == "textDocument/hover") {
+                val params: HoverParams =
+                    objectMapper.convertValue(request.params, HoverParams::class.java)
+                hoverService.doHover(request.id, params)
+                return
+            }
+
+            if (request.method == "textDocument/definition") {
+                val params: DefinitionParams =
+                    objectMapper.convertValue(request.params, DefinitionParams::class.java)
+                definitionService.doDefinition(request.id, params)
+                return
+            }
+
+            if (request.method == "textDocument/references") {
+                val params: ReferenceParams =
+                    objectMapper.convertValue(request.params, ReferenceParams::class.java)
+                referenceService.doReferences(request.id, params)
+                return
+            }
+
+            if (request.method == "textDocument/codeAction") {
+                val params: CodeActionParams =
+                    objectMapper.convertValue(request.params, CodeActionParams::class.java)
+                codeActionService.doCodeActions(request.id, params)
+                return
+            }
+
+            if (request.method == "workspace/executeCommand") {
+                val params: ExecuteCommandParams =
+                    objectMapper.convertValue(request.params, ExecuteCommandParams::class.java)
+                commandService.executeCommand(request.id, params)
+                return
+            }
         }
     }
 }

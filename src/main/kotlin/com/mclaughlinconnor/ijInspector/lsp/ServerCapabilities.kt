@@ -103,7 +103,7 @@ class ServerCapabilities(
     val workspaceSymbolProvider: Boolean? = null,
 
     @JsonProperty
-    val workspace: Any? = null,
+    val workspace: WorkspaceCapabilities? = null,
 
     @JsonProperty
     val experimental: Any? = null,

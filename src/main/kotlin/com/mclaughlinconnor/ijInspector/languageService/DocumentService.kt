@@ -8,20 +8,27 @@ import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiDocumentManager
+import com.mclaughlinconnor.ijInspector.lsp.CreateFilesParams
+import com.mclaughlinconnor.ijInspector.lsp.DeleteFilesParams
 import com.mclaughlinconnor.ijInspector.lsp.DidChangeTextDocumentParams
+import com.mclaughlinconnor.ijInspector.lsp.RenameFilesParams
 import com.mclaughlinconnor.ijInspector.utils.Utils
 
 class DocumentService(
     private val myProject: Project
 ) {
+    @Suppress("UnstableApiUsage")
     private lateinit var codeAnalyzer: DaemonCodeAnalyzerImpl
     private val fileEditorManager = FileEditorManager.getInstance(myProject)
+    private val localFileSystem = LocalFileSystem.getInstance()
     private val myApplication: Application = ApplicationManager.getApplication()
     private val psiDocumentManager = PsiDocumentManager.getInstance(myProject)
 
     init {
         myApplication.runReadAction {
+            @Suppress("UnstableApiUsage")
             codeAnalyzer = DaemonCodeAnalyzer.getInstance(myProject) as DaemonCodeAnalyzerImpl
         }
     }
@@ -47,6 +54,25 @@ class DocumentService(
             val file = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
             fileEditorManager.openFile(file.virtualFile, true)
             fileEditorManager.setSelectedEditor(file.virtualFile, TextEditorProvider.getInstance().editorTypeId)
+        }
+    }
+
+    fun didCreateFiles(params: CreateFilesParams) {
+        for (file in params.files) {
+            localFileSystem.refreshAndFindFileByPath(file.uri.substring("file://".length))
+        }
+    }
+
+    fun didDeleteFiles(params: DeleteFilesParams) {
+        for (file in params.files) {
+            localFileSystem.refreshAndFindFileByPath(file.uri.substring("file://".length))
+        }
+    }
+
+    fun didRenameFiles(params: RenameFilesParams) {
+        for (file in params.files) {
+            localFileSystem.refreshAndFindFileByPath(file.newUri.substring("file://".length))
+            localFileSystem.refreshAndFindFileByPath(file.oldUri.substring("file://".length))
         }
     }
 }

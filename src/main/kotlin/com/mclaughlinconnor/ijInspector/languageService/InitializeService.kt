@@ -24,7 +24,36 @@ class InitializeService(
                 workspaceDiagnostics = false
             ),
             codeActionProvider = true,
-            executeCommandProvider = ExecuteCommandOptions(arrayOf(CODE_ACTION_COMMAND))
+            executeCommandProvider = ExecuteCommandOptions(arrayOf(CODE_ACTION_COMMAND)),
+            workspace = WorkspaceCapabilities(
+                workspaceFolders = WorkspaceFoldersServerCapabilities(
+                    supported = true,
+                    changeNotifications = true,
+                ),
+                fileOperations = WorkspaceFileOperationsCapabilities(
+                    didCreate = FileOperationRegistrationOptions(
+                        filters = arrayOf(
+                            FileOperationFilter(
+                                pattern = FileOperationPattern(glob = "**/*")
+                            )
+                        )
+                    ),
+                    didDelete = FileOperationRegistrationOptions(
+                        filters = arrayOf(
+                            FileOperationFilter(
+                                pattern = FileOperationPattern(glob = "**/*")
+                            )
+                        )
+                    ),
+                    didRename = FileOperationRegistrationOptions(
+                        filters = arrayOf(
+                            FileOperationFilter(
+                                pattern = FileOperationPattern(glob = "**/*")
+                            )
+                        )
+                    )
+                )
+            )
         )
         val result = InitializeResult(serverCapabilities)
         pendingResponse = Response(requestId, result)
