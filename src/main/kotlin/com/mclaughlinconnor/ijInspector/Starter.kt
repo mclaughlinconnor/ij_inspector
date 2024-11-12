@@ -69,10 +69,10 @@ class Starter : ApplicationStarter {
 
             codeActionService = CodeActionService(project, myConnection)
             commandService = CommandService(project, myConnection)
-            completionsService = CompletionsService(project, myConnection)
             definitionService = DefinitionService(project, myConnection)
             diagnosticService = DiagnosticService(project, myConnection)
             documentService = DocumentService(project)
+            completionsService = CompletionsService(project, myConnection, documentService)
             hoverService = HoverService(project, myConnection)
             referenceService = ReferenceService(project, myConnection)
         }
@@ -174,8 +174,7 @@ class Starter : ApplicationStarter {
             if (notification.method == "textDocument/didChange") {
                 val params: DidChangeTextDocumentParams =
                     objectMapper.convertValue(notification.params, DidChangeTextDocumentParams::class.java)
-                val filePath = params.textDocument.uri.substring("file://".length)
-                documentService.handleChange(filePath, params)
+                documentService.handleChange(params)
                 return
             }
 

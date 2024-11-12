@@ -13,10 +13,13 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.impl.DocumentImpl
+import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.util.Consumer
+import com.intellij.util.containers.toArray
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.lsp.CompletionContext
 import com.mclaughlinconnor.ijInspector.rpc.Connection
@@ -25,18 +28,23 @@ import com.mclaughlinconnor.ijInspector.utils.Utils.Companion.createDocument
 import com.mclaughlinconnor.ijInspector.utils.Utils.Companion.obtainLookup
 
 
+const val MAX_CACHE_VALUES = 200
+
 @Suppress("UnstableApiUsage")
 class CompletionsService(
     private val myProject: Project,
     private val myConnection: Connection,
+    private val documentService: DocumentService,
 ) {
     private val messageFactory: com.mclaughlinconnor.ijInspector.rpc.MessageFactory =
         com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
     private val myApplication: Application = ApplicationManager.getApplication()
     private val myDocumentationService: DocumentationService = DocumentationService(myProject)
+    private val fileCache: MutableList<String> = mutableListOf()
+    private val editorFactory: EditorFactory = EditorFactory.getInstance()
 
     private fun createIndicator(
-        editor: Editor, completionType: CompletionType, initContext: CompletionInitializationContextImpl
+        editor: Editor, completionType: CompletionType, initContext: CompletionInitializationContextImpl,
     ): CompletionProgressIndicator {
         val lookup: LookupImpl = obtainLookup(editor, initContext.project)
         val handler = CodeCompletionHandlerBase.createHandler(completionType, true, false, true)
@@ -58,7 +66,7 @@ class CompletionsService(
     }
 
     private fun createParameters(
-        initContext: CompletionInitializationContextImpl, indicator: CompletionProgressIndicator
+        initContext: CompletionInitializationContextImpl, indicator: CompletionProgressIndicator,
     ): CompletionParameters {
         val applyPsiChanges = CompletionInitializationUtil.insertDummyIdentifier(initContext, indicator)
         val hostCopyOffsets = applyPsiChanges.get()
@@ -71,50 +79,105 @@ class CompletionsService(
     }
 
     fun doAutocomplete(
-        id: Int, position: Position, context: CompletionContext?, filePath: String, completionType: CompletionType
+        id: Int, position: Position, context: CompletionContext?, filePath: String, completionType: CompletionType,
     ) {
-        fetchCompletions(position, filePath, completionType) { completions, _, _, _ ->
-            val response =
-                formatResults(id, completions, filePath, position, context?.triggerCharacter?.get(0) ?: '\u0000')
-            myConnection.write(response)
+        documentService.immediatelyReEmitMostRecentDidChange {
+            context?.triggerCharacter = null
+            context?.triggerKind = CompletionTriggerKindEnum.Invoked
+
+            val document = createDocument(myProject, filePath) ?: return@immediatelyReEmitMostRecentDidChange
+            val documentHashCode = pushToCache(document.text)
+
+            fetchCompletions(position, filePath, completionType) { completions, _, _, _ ->
+                val response = formatResults(
+                    id, completions, filePath, position, context?.triggerCharacter?.get(0) ?: '\u0000', documentHashCode
+                )
+                myConnection.write(response)
+            }
         }
     }
 
     fun resolveCompletion(
-        id: Int, completionType: CompletionType, toResolve: CompletionItem
+        id: Int, completionType: CompletionType, toResolve: CompletionItem,
     ) {
-        val filePath = toResolve.data.filePath
-        val position = toResolve.data.position
-        val triggerCharacter = toResolve.data.triggerCharacter
-        fetchCompletions(position, filePath, completionType) { completions, _, document, initContext ->
-            val resultToResolve = completions.find { completion ->
-                val item = formatResult(completion, filePath, position, triggerCharacter)
+        documentService.immediatelyReEmitMostRecentDidChange {
+            val filePath = toResolve.data.filePath
+            val position = toResolve.data.position
+            val triggerCharacter = toResolve.data.triggerCharacter
+            fetchCompletions(
+                position,
+                filePath,
+                completionType,
+            ) { completions, _, document, initContext ->
+                val documentHashCode = toResolve.data.documentHashCode
 
-                (((item.detail ?: "") == (toResolve.detail ?: "")
-                        && (item.labelDetails?.detail ?: "") == (toResolve.labelDetails?.detail ?: "")
-                        && (item.labelDetails?.description ?: "") == (toResolve.labelDetails?.description ?: "")
-                        && item.insertText == toResolve.insertText
-                        && (item.documentation?.value ?: "") == (toResolve.documentation?.value ?: "")))
-            } ?: return@fetchCompletions
+                var initialCompletionDocumentContent = ""
+                findDocumentByHashCode(documentHashCode)?.let {
+                    myApplication.runWriteAction {
+                        initialCompletionDocumentContent = it
+                    }
+                }
 
-            val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@fetchCompletions
-            val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@fetchCompletions
+                var initialCompletionDocument = DocumentImpl(initialCompletionDocumentContent) as Document
 
-            myApplication.runReadAction {
-                resolveDocumentation(resultToResolve, toResolve)
+                val lineStart = initialCompletionDocument.getLineStartOffset(position.line)
+                val offset = lineStart + position.character
+                val cursorPrefix = initialCompletionDocument.text.substring(lineStart, offset).trim()
+
+                val resultToResolve = completions.find { completion ->
+                    val item = formatResult(
+                        completion, filePath, position, triggerCharacter, toResolve.data.documentHashCode, cursorPrefix
+                    )
+
+                    (((item.detail ?: "") == (toResolve.detail ?: "") && (item.labelDetails?.detail
+                        ?: "") == (toResolve.labelDetails?.detail ?: "") && (item.labelDetails?.description
+                        ?: "") == (toResolve.labelDetails?.description
+                        ?: "") && item.insertText == toResolve.insertText && (item.documentation?.value
+                        ?: "") == (toResolve.documentation?.value ?: "")))
+                } ?: return@fetchCompletions
+
+                val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@fetchCompletions
+                val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@fetchCompletions
+
+                myApplication.executeOnPooledThread {
+                    ProgressManager.getInstance().executeProcessUnderProgress(
+                        {
+                            myApplication.runReadAction {
+                                resolveDocumentation(resultToResolve, toResolve)
+                            }
+                        }, EmptyProgressIndicator()
+                    )
+
+                    var cursorOffset = document.getLineStartOffset(position.line) + position.character
+                    val isPrefix =
+                        resultToResolve.lookupElement.lookupString.startsWith(resultToResolve.prefixMatcher.prefix)
+                    if (isPrefix) {
+                        cursorOffset += resultToResolve.lookupElement.lookupString.length - resultToResolve.prefixMatcher.prefix.length
+                    } else {
+                        initialCompletionDocument = createDocument(myProject, filePath)!!
+                    }
+
+                    val caret = editor.caretModel.primaryCaret
+
+                    myApplication.invokeLater {
+                        caret.moveToOffset(cursorOffset)
+
+                        resolveEdits(
+                            completions,
+                            resultToResolve,
+                            toResolve,
+                            triggerCharacter,
+                            editor,
+                            initialCompletionDocument.text,
+                            psiFile,
+                            cursorOffset,
+                            initContext
+                        )
+                        val response = Response(id, toResolve)
+                        myConnection.write(messageFactory.newMessage(response))
+                    }
+                }
             }
-
-            val cursorChange =
-                resultToResolve.lookupElement.lookupString.length - resultToResolve.prefixMatcher.prefix.length
-            val cursorOffset = document.getLineStartOffset(position.line) + position.character + cursorChange
-            val caret = editor.caretModel.primaryCaret
-            caret.moveToOffset(cursorOffset)
-
-            resolveEdits(
-                completions, resultToResolve, toResolve, triggerCharacter, editor, psiFile, cursorOffset, initContext
-            )
-            val response = Response(id, toResolve)
-            myConnection.write(messageFactory.newMessage(response))
         }
     }
 
@@ -122,15 +185,17 @@ class CompletionsService(
         position: Position,
         filePath: String,
         completionType: CompletionType,
-        callback: (completions: MutableList<CompletionResult>, editor: Editor, document: Document, initContext: CompletionInitializationContext) -> Unit
+        callback: (completions: MutableList<CompletionResult>, editor: Editor, document: Document, initContext: CompletionInitializationContext) -> Unit,
     ) {
         val results: MutableList<CompletionResult> = ArrayList()
         val consumer: Consumer<CompletionResult> = Consumer { result -> results.add(result) }
-        val document = createDocument(myProject, filePath) ?: return
-        val cursorOffset = document.getLineStartOffset(position.line) + position.character
 
         myApplication.invokeLater {
-            val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater
+            val document = createDocument(myProject, filePath) ?: return@invokeLater
+
+            val cursorOffset = document.getLineStartOffset(position.line) + position.character
+
+            val editor = editorFactory.createEditor(document, myProject) ?: return@invokeLater
             val caret = editor.caretModel.primaryCaret
             caret.moveToOffset(cursorOffset)
 
@@ -141,10 +206,30 @@ class CompletionsService(
             val indicator = createIndicator(editor, completionType, initContext)
             val parameters = createParameters(initContext, indicator)
 
-            CompletionService.getCompletionService().performCompletion(parameters, consumer)
+            myApplication.executeOnPooledThread {
+                ProgressManager.getInstance().runProcess({
+                    myApplication.runReadAction {
+                        CompletionService.getCompletionService().performCompletion(parameters, consumer)
+                    }
+                }, EmptyProgressIndicator())
 
-            callback(results.subList(0, results.size.coerceAtMost(20)), editor, document, initContext)
+                myApplication.invokeLater {
+                    val entries = results.subList(0, results.size.coerceAtMost(20))
+                    callback(entries, editor, document, initContext)
+                }
+            }
+
         }
+    }
+
+    private fun findDocumentByHashCode(hashCode: Int): String? {
+        for (text in fileCache) {
+            if (text.hashCode() == hashCode) {
+                return text
+            }
+        }
+
+        return null
     }
 
     private fun formatResults(
@@ -152,12 +237,30 @@ class CompletionsService(
         completions: MutableList<CompletionResult>,
         filePath: String,
         position: Position,
-        triggerCharacter: Char
+        triggerCharacter: Char,
+        documentHashCode: Int,
     ): String {
         val items = ArrayList<CompletionItem>()
-        val list = CompletionList(false, items)
+        val list = CompletionList(true, items)
+
+        var initialCompletionDocumentContent = ""
+        findDocumentByHashCode(documentHashCode)?.let {
+            myApplication.runWriteAction {
+                initialCompletionDocumentContent = it
+            }
+        }
+
+        val document = DocumentImpl(initialCompletionDocumentContent)
+        val lineStart = document.getLineStartOffset(position.line)
+        val offset = lineStart + position.character
+        val cursorPrefix = document.text.substring(lineStart, offset).trim()
+
         for (completion in completions) {
-            list.pushItem(formatResult(completion, filePath, position, triggerCharacter))
+            list.pushItem(
+                formatResult(
+                    completion, filePath, position, triggerCharacter, documentHashCode, cursorPrefix
+                )
+            )
         }
 
         val response = Response(responseId, list)
@@ -166,7 +269,12 @@ class CompletionsService(
     }
 
     private fun formatResult(
-        completion: CompletionResult, filePath: String, position: Position, triggerCharacter: Char
+        completion: CompletionResult,
+        filePath: String,
+        position: Position,
+        triggerCharacter: Char,
+        documentHashCode: Int,
+        cursorPrefix: String,
     ): CompletionItem {
         val presentation = LookupElementPresentation()
         completion.lookupElement.renderElement(presentation)
@@ -176,20 +284,16 @@ class CompletionsService(
         var details: CompletionItemLabelDetails? = null
         if (presentation.tailText != null || presentation.typeText != null) {
             details = CompletionItemLabelDetails(
-                presentation.tailText,
-                presentation.typeText
+                presentation.tailText, presentation.typeText
             )
         }
 
         return CompletionItem(
-            label,
-            null,
-            null,
-            insertText,
-            details,
-            null,
-            null,
-            CompletionItemData(filePath, position, triggerCharacter),
+            label = label,
+            insertText = insertText,
+            labelDetails = details,
+            filterText = cursorPrefix,
+            data = CompletionItemData(filePath, position, triggerCharacter, documentHashCode),
         )
     }
 
@@ -198,7 +302,6 @@ class CompletionsService(
 
         val provider = LanguageDocumentation.INSTANCE.forLanguage(element.language)
         if (provider != null) {
-
             val documentation = myDocumentationService.fetchDocumentation(element, null)
             if (documentation == "") {
                 return
@@ -214,9 +317,10 @@ class CompletionsService(
         toResolve: CompletionItem,
         triggerCharacter: Char,
         editor: Editor,
+        initialCompletionDocumentContent: String,
         psiFile: PsiFile,
         cursorOffset: Int,
-        initContext: CompletionInitializationContext
+        initContext: CompletionInitializationContext,
     ) {
         var insertionContext: InsertionContext? = null
         myApplication.runReadAction {
@@ -232,7 +336,6 @@ class CompletionsService(
             )
         }
 
-        val beforeText = editor.document.text
         WriteCommandAction.runWriteCommandAction(myProject) {
             resultToResolve.lookupElement.handleInsert(insertionContext!!)
         }
@@ -242,49 +345,40 @@ class CompletionsService(
             afterCursorOffset = editor.caretModel.currentCaret.offset
         }
 
-        val editPair = TextEditUtil.computeTextEdits(beforeText, afterText)
+        val editPair = TextEditUtil.computeTextEdits(initialCompletionDocumentContent, afterText)
         val edits = editPair.first.toMutableList()
         val fragments = editPair.second
-
-        val alreadyInsertedLength =
-            resultToResolve.lookupElement.lookupString.length - resultToResolve.prefixMatcher.prefix.length
 
         for (i in fragments.indices) {
             if (fragments[i].startOffset2 <= afterCursorOffset!! && afterCursorOffset!! <= fragments[i].endOffset2) {
                 val primaryEdit = edits[i]
 
-                val documentAfter = DocumentImpl(afterText)
-
-                val lineEndOffset = documentAfter.getLineEndOffset(primaryEdit.range.start.line)
-                val suffixLength = lineEndOffset - afterCursorOffset!! + "\n".length
-
-                val suffix = primaryEdit.newText.substring(
-                    primaryEdit.newText.length - (suffixLength), primaryEdit.newText.length
-                )
-                val suffixRange = Range(
-                    Position(
-                        primaryEdit.range.start.line,
-                        primaryEdit.newText.length - (suffixLength + 1) - alreadyInsertedLength
-                    ), primaryEdit.range.end
-                )
-
-                if (toResolve.additionalTextEdits == null) {
-                    toResolve.additionalTextEdits = ArrayList()
-                }
-                toResolve.additionalTextEdits!!.add(TextEdit(suffixRange, suffix))
-
-                primaryEdit.newText = primaryEdit.newText.substring(0, primaryEdit.newText.length - suffixLength)
-
-                toResolve.textEdit = primaryEdit
+                val cursorCharsFromStart = afterCursorOffset!! - fragments[i].startOffset1
+                primaryEdit.newText =
+                    primaryEdit.newText.substring(0, cursorCharsFromStart) + "$0" + primaryEdit.newText.substring(
+                        cursorCharsFromStart
+                    )
                 edits.removeAt(i)
 
-                break
+                toResolve.textEdit = primaryEdit
+                toResolve.insertTextFormat = InsertTextFormatEnum.Snippet
             }
         }
 
-        toResolve.additionalTextEdits = edits
+        toResolve.additionalTextEdits = edits.toArray(arrayOf())
+    }
+
+    private fun pushToCache(text: String): Int {
+        if (fileCache.size > MAX_CACHE_VALUES) {
+            fileCache.removeFirst()
+        }
+
+        fileCache.add(text)
+
+        return text.hashCode()
     }
 }
+
 
 // var inputBySorter = MultiMap.createLinked<CompletionSorterImpl, LookupElement>()
 // for (element: LookupElement? in source) {

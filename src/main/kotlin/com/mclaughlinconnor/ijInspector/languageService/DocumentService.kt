@@ -15,7 +15,14 @@ import com.mclaughlinconnor.ijInspector.lsp.DeleteFilesParams
 import com.mclaughlinconnor.ijInspector.lsp.DidChangeTextDocumentParams
 import com.mclaughlinconnor.ijInspector.lsp.RenameFilesParams
 import com.mclaughlinconnor.ijInspector.utils.Utils
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
+@OptIn(FlowPreview::class)
 class DocumentService(
     private val myProject: Project
 ) {
@@ -25,15 +32,30 @@ class DocumentService(
     private val localFileSystem = LocalFileSystem.getInstance()
     private val myApplication: Application = ApplicationManager.getApplication()
     private val psiDocumentManager = PsiDocumentManager.getInstance(myProject)
+    private val didChangeBuffer = MutableSharedFlow<DidChangeTextDocumentParams>(0, 10, BufferOverflow.DROP_OLDEST)
+    private var mostRecentDidChange: DidChangeTextDocumentParams? = null
 
     init {
         myApplication.runReadAction {
             @Suppress("UnstableApiUsage")
             codeAnalyzer = DaemonCodeAnalyzer.getInstance(myProject) as DaemonCodeAnalyzerImpl
         }
+
+        myApplication.executeOnPooledThread {
+            runBlocking {
+                launch {
+                    didChangeBuffer
+                        .debounce(150)
+                        .collect { params ->
+                            val filePath = params.textDocument.uri.substring("file://".length)
+                            doHandleChange(filePath, params, null)
+                        }
+                }
+            }
+        }
     }
 
-    fun handleChange(filePath: String, params: DidChangeTextDocumentParams) {
+    private fun doHandleChange(filePath: String, params: DidChangeTextDocumentParams, callback: (() -> Unit)?) {
         val document = Utils.createDocument(myProject, filePath) ?: return
 
         myApplication.invokeLater {
@@ -45,7 +67,28 @@ class DocumentService(
                 document.setText(params.contentChanges[0].text) // only support whole document updates
                 psiDocumentManager.commitDocument(document)
             }
+
+            if (callback != null) {
+                myApplication.executeOnPooledThread(callback)
+            }
         }
+    }
+
+    fun handleChange(params: DidChangeTextDocumentParams) {
+        mostRecentDidChange = params
+        didChangeBuffer.tryEmit(params)
+    }
+
+    fun immediatelyReEmitMostRecentDidChange(callback: () -> Unit) {
+        if (mostRecentDidChange == null) {
+            callback()
+            return
+        }
+
+        val filePath = mostRecentDidChange!!.textDocument.uri.substring("file://".length)
+        doHandleChange(filePath, mostRecentDidChange!!, callback)
+
+        mostRecentDidChange = null
     }
 
     fun doOpen(filePath: String) {

@@ -3,7 +3,7 @@ package com.mclaughlinconnor.ijInspector.utils
 import com.intellij.diff.comparison.ComparisonManager
 import com.intellij.diff.comparison.ComparisonPolicy
 import com.intellij.diff.comparison.DiffTooBigException
-import com.intellij.diff.fragments.LineFragment
+import com.intellij.diff.fragments.DiffFragment
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.progress.DumbProgressIndicator
 import com.intellij.openapi.util.TextRange
@@ -16,8 +16,8 @@ class TextEditUtil {
     companion object {
         fun computeTextEdits(
             textBefore: String,
-            textAfter: String
-        ): Pair<List<TextEdit>, List<LineFragment>> {
+            textAfter: String,
+        ): Pair<List<TextEdit>, List<DiffFragment>> {
             val documentBefore = DocumentImpl(textBefore)
             val documentAfter = DocumentImpl(textAfter)
 
@@ -25,11 +25,11 @@ class TextEditUtil {
                 return Pair(ArrayList(), ArrayList())
             }
 
-            val fragments: List<LineFragment>?
+            val fragments: List<DiffFragment>?
             try {
                 val manager = ComparisonManager.getInstance()
                 fragments =
-                    manager.compareLines(textBefore, textAfter, ComparisonPolicy.DEFAULT, DumbProgressIndicator())
+                    manager.compareWords(textBefore, textAfter, ComparisonPolicy.DEFAULT, DumbProgressIndicator())
             } catch (e: DiffTooBigException) {
                 e.printStackTrace()
                 return Pair(ArrayList(), ArrayList())
@@ -37,8 +37,8 @@ class TextEditUtil {
 
             val textEdits: MutableList<TextEdit> = ArrayList()
             for (fragment in fragments) {
-                val startLine = fragment.startLine1
-                val endLine = fragment.endLine1
+                val startLine = documentBefore.getLineNumber(fragment.startOffset1)
+                val endLine = documentBefore.getLineNumber(fragment.endOffset1)
 
                 val startColumn = fragment.startOffset1 - documentBefore.getLineStartOffset(startLine)
                 val endColumn = fragment.endOffset1 - documentBefore.getLineStartOffset(endLine)

@@ -7,7 +7,7 @@ class CompletionContext {
      * How the completion was triggered.
      */
     @JsonProperty
-    val triggerKind: CompletionTriggerKind = CompletionTriggerKindEnum.Invoked
+    var triggerKind: CompletionTriggerKind = CompletionTriggerKindEnum.Invoked
 
     /**
      * The trigger character (a single character) that has trigger code
@@ -15,5 +15,5 @@ class CompletionContext {
      * `triggerKind !== CompletionTriggerKind.TriggerCharacter`
      */
     @JsonProperty
-    val triggerCharacter: String? = null
+    var triggerCharacter: String? = null
 }

@@ -1,5 +1,6 @@
 package com.mclaughlinconnor.ijInspector.languageService
 
+import com.intellij.util.containers.toArray
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
 import com.mclaughlinconnor.ijInspector.rpc.MessageFactory
@@ -11,10 +12,15 @@ class InitializeService(
     private var pendingResponse: Response? = null
 
     fun startInitialise(requestId: Int, params: InitializeParams): String? {
+        val triggerCharacters = ('A'..'z').map { it.toString() }.toMutableList()
+        triggerCharacters.addAll(listOf(".", "\"", "'", "`", "/", "@", "<", "#", " ", "*"))
+
         val serverCapabilities = ServerCapabilities(
             completionProvider = CompletionOptions(
                 resolveProvider = true,
-                completionItem = CompletionItemOptions(labelDetailsSupport = true)
+                completionItem = CompletionItemOptions(labelDetailsSupport = true),
+                triggerCharacters = triggerCharacters.toArray(arrayOf()),
+                allCommitCharacters = arrayOf(".", ",", ";"),
             ),
             hoverProvider = true,
             definitionProvider = true,

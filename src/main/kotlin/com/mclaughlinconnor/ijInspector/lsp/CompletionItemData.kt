@@ -5,5 +5,6 @@ import com.fasterxml.jackson.annotation.JsonProperty
 class CompletionItemData(
     @JsonProperty val filePath: String = "",
     @JsonProperty val position: Position = Position(0, 0),
-    @JsonProperty val triggerCharacter: Char = '\u0000'
+    @JsonProperty val triggerCharacter: Char = '\u0000',
+    @JsonProperty val documentHashCode: Int = 0,
 )
