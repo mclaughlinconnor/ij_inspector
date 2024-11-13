@@ -11,6 +11,11 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.mclaughlinconnor.ijInspector.lsp.Response
+import com.mclaughlinconnor.ijInspector.lsp.ResponseError
+import com.mclaughlinconnor.ijInspector.lsp.ResponseErrorData
+import com.mclaughlinconnor.ijInspector.rpc.Connection
+import com.mclaughlinconnor.ijInspector.rpc.MessageFactory
 
 class Utils {
     companion object {
@@ -42,6 +47,19 @@ class Utils {
             }
             lookup.lookupFocusDegree = LookupFocusDegree.UNFOCUSED
             return lookup
+        }
+
+        fun runCatching(requestId: Int, connection: Connection, action: () -> Unit) {
+            try {
+                action()
+            } catch (e: Exception) {
+                val error = ResponseError(e.hashCode(), e.message ?: "", ResponseErrorData(e.stackTraceToString()))
+                val response = Response(requestId, null, error)
+                val message = MessageFactory().newMessage(response)
+                connection.write(message)
+
+                throw e
+            }
         }
     }
 }

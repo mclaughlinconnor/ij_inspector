@@ -16,6 +16,7 @@ import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
 import com.mclaughlinconnor.ijInspector.rpc.ConnectionManager
 import com.mclaughlinconnor.ijInspector.rpc.MessageFactory
+import com.mclaughlinconnor.ijInspector.utils.Utils
 import kotlinx.coroutines.*
 import java.nio.file.Path
 
@@ -144,7 +145,9 @@ class Starter : ApplicationStarter {
                 return false
             }
 
-            handleRequest(request)
+            Utils.runCatching(request.id, myConnection) {
+                handleRequest(request)
+            }
 
             return true
         }

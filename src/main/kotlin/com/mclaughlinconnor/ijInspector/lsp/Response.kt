@@ -8,6 +8,9 @@ class Response (
 
     @JsonProperty
     val result: Any? = null,
+
+    @JsonProperty
+    val error: ResponseError? = null,
 ) {
     @JsonProperty
     val jsonrpc: String = "2.0"
