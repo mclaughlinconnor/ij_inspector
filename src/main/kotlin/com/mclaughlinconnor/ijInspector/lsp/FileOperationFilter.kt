@@ -7,5 +7,5 @@ class FileOperationFilter(
     val scheme: String? = null,
 
     @JsonProperty
-    val pattern: FileOperationPattern,
+    val pattern: FileOperationPattern = FileOperationPattern(),
 )

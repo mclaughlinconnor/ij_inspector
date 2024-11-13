@@ -4,8 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class ApplyWorkspaceEditParams(
     @JsonProperty
-    val label: String?,
+    val label: String? = null,
 
     @JsonProperty
-    val edit: WorkspaceEdit?
+    val edit: WorkspaceEdit? = null,
 )

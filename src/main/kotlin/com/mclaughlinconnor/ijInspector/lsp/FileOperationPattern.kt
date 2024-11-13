@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class FileOperationPattern(
     @JsonProperty
-    val glob: String,
+    val glob: String = "",
 
     @JsonProperty
     val matches: FileOperationPatternKind? = null,

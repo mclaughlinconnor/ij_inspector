@@ -4,5 +4,5 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class FileCreate(
     @JsonProperty
-    val uri: String = ""
+    val uri: String = "",
 )

@@ -4,5 +4,5 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class FileOperationPatternOptions(
     @JsonProperty
-    val ignoreCase: Boolean?
+    val ignoreCase: Boolean? = null,
 )

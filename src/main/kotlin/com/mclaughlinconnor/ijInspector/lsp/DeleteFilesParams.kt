@@ -4,5 +4,5 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class DeleteFilesParams(
     @JsonProperty
-    val files: Array<FileDelete>,
+    val files: Array<FileDelete> = arrayOf(),
 )

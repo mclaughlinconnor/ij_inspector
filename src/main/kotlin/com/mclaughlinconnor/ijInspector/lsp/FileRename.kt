@@ -4,8 +4,8 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class FileRename(
     @JsonProperty
-    val oldUri: String,
+    val oldUri: String = "",
 
     @JsonProperty
-    val newUri: String,
+    val newUri: String = "",
 )

@@ -4,5 +4,5 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class RenameFilesParams(
     @JsonProperty
-    val files: Array<FileRename>,
+    val files: Array<FileRename> = arrayOf(),
 )
