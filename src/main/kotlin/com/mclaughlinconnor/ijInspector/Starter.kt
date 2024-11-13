@@ -60,6 +60,7 @@ class Starter : ApplicationStarter {
         private var messageFactory: MessageFactory = MessageFactory()
         private val objectMapper = ObjectMapper()
         private lateinit var referenceService: ReferenceService
+        private lateinit var renameService: RenameService
         private var ready: Boolean = false
 
         private fun initServices(project: Project) {
@@ -76,6 +77,7 @@ class Starter : ApplicationStarter {
             completionsService = CompletionsService(project, myConnection, documentService)
             hoverService = HoverService(project, myConnection)
             referenceService = ReferenceService(project, myConnection)
+            renameService = RenameService(project, myConnection)
         }
 
         override fun run() {
@@ -283,6 +285,13 @@ class Starter : ApplicationStarter {
                 val params: ExecuteCommandParams =
                     objectMapper.convertValue(request.params, ExecuteCommandParams::class.java)
                 commandService.executeCommand(request.id, params)
+                return
+            }
+
+            if (request.method == "textDocument/rename") {
+                val params: RenameParams =
+                    objectMapper.convertValue(request.params, RenameParams::class.java)
+                renameService.handleRename(request.id, params)
                 return
             }
         }

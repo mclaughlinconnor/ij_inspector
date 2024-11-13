@@ -31,6 +31,7 @@ class InitializeService(
             ),
             codeActionProvider = true,
             executeCommandProvider = ExecuteCommandOptions(arrayOf(CODE_ACTION_COMMAND)),
+            renameProvider = true,
             workspace = WorkspaceCapabilities(
                 workspaceFolders = WorkspaceFoldersServerCapabilities(
                     supported = true,

@@ -29,10 +29,8 @@ const val MAX_COMMANDS = 200
 
 class CommandService(private val myProject: Project, private val connection: Connection) {
     private val documentChanges: MutableList<AbstractTextDocumentEdit> = mutableListOf()
-    private val editorFactory: EditorFactory = EditorFactory.getInstance()
     private val messageFactory: MessageFactory = MessageFactory()
     private val psiDocumentManager = PsiDocumentManager.getInstance(myProject)
-    private var isListening = true
 
     fun executeCommand(requestId: Int, params: ExecuteCommandParams) {
         val stringHashCode = params.arguments?.getOrNull(0) ?: return writeEmptyResponse(requestId)
@@ -71,24 +69,14 @@ class CommandService(private val myProject: Project, private val connection: Con
     }
 
     private fun invokeAction(command: IntentionAction, editor: Editor, psiFile: PsiFile) {
-        val messageBus = myProject.messageBus.connect()
         documentChanges.clear()
 
-        val documentListener = MyDocumentListener()
-        val disposable = Disposer.newDisposable()
-        editorFactory.eventMulticaster.addDocumentListener(documentListener, disposable)
-        messageBus.subscribe(VirtualFileManager.VFS_CHANGES, MyVfsListener())
+        val workspaceEdit = trackChanges(myProject) {
+            // TODO: this can be _really_ slow, so add some progress messages.
+            @Suppress("DialogTitleCapitalization")
+            ShowIntentionActionsHandler.chooseActionAndInvoke(psiFile, editor, command, command.text)
+        }
 
-
-        // TODO: this can be _really_ slow, so add some progress messages.
-        @Suppress("DialogTitleCapitalization")
-        ShowIntentionActionsHandler.chooseActionAndInvoke(psiFile, editor, command, command.text)
-
-        editorFactory.eventMulticaster.removeDocumentListener(documentListener)
-        disposable.dispose()
-        messageBus.disconnect()
-
-        val workspaceEdit = WorkspaceEdit(documentChanges = documentChanges.toArray(arrayOf()))
         val request =
             Request(RequestId.getNextRequestId(), ApplyWorkspaceEditParams(null, workspaceEdit), "workspace/applyEdit")
         val message = messageFactory.newMessage(request)
@@ -112,115 +100,131 @@ class CommandService(private val myProject: Project, private val connection: Con
         connection.write(message)
     }
 
-    inner class MyVfsListener : BulkFileListener {
-        private val preChangeText: MutableMap<String, String> = HashMap()
-        private val fileIndex = ProjectRootManager.getInstance(myProject).fileIndex
+    companion object {
+        private val commands: MutableList<IntentionAction> = mutableListOf()
 
-        override fun after(events: List<VFileEvent>) {
-            for (event in events) {
-                if (event.file?.let { fileIndex.isInProject(it) } != true) {
-                    continue
-                }
+        fun trackChanges(project: Project, action: () -> Unit): WorkspaceEdit {
+            val messageBus = project.messageBus.connect()
+            val documentChanges: MutableList<AbstractTextDocumentEdit> = mutableListOf()
 
-                if (event is VFileContentChangeEvent) {
-                    val file = event.file
-                    val document = file.findDocument() ?: continue
+            val documentListener = MyDocumentListener(documentChanges)
+            val disposable = Disposer.newDisposable()
 
-                    val preText = preChangeText[event.file.path] ?: continue
-                    val postText = document.text
+            EditorFactory.getInstance().eventMulticaster.addDocumentListener(documentListener, disposable)
+            messageBus.subscribe(VirtualFileManager.VFS_CHANGES, MyVfsListener(project, documentChanges))
 
-                    val results = TextEditUtil.computeTextEdits(preText, postText)
-                    val edits = results.first
+            action()
 
-                    documentChanges.add(
-                        TextDocumentEdit(
-                            TextDocumentIdentifier("file://${file.path}"),
-                            edits.toArray(arrayOf())
-                        )
+            EditorFactory.getInstance().eventMulticaster.removeDocumentListener(documentListener)
+            disposable.dispose()
+            messageBus.disconnect()
+
+            return WorkspaceEdit(documentChanges = documentChanges.toArray(arrayOf()))
+        }
+    }
+}
+
+
+class MyVfsListener(myProject: Project, private val documentChanges: MutableList<AbstractTextDocumentEdit>) :
+    BulkFileListener {
+    private val preChangeText: MutableMap<String, String> = HashMap()
+    private val fileIndex = ProjectRootManager.getInstance(myProject).fileIndex
+
+    override fun after(events: List<VFileEvent>) {
+        for (event in events) {
+            if (event.file?.let { fileIndex.isInProject(it) } != true) {
+                continue
+            }
+
+            if (event is VFileContentChangeEvent) {
+                val file = event.file
+                val document = file.findDocument() ?: continue
+
+                val preText = preChangeText[event.file.path] ?: continue
+                val postText = document.text
+
+                val results = TextEditUtil.computeTextEdits(preText, postText)
+                val edits = results.first
+
+                documentChanges.add(
+                    TextDocumentEdit(
+                        TextDocumentIdentifier("file://${file.path}"),
+                        edits.toArray(arrayOf())
                     )
+                )
 
-                    continue
-                }
+                continue
+            }
 
-                if (event is VFileCopyEvent) {
-                    val document = event.file.findDocument() ?: continue
-                    documentChanges.add(CreateFile("file://${event.path}", null))
-                    documentChanges.add(
-                        TextDocumentEdit(
-                            TextDocumentIdentifier("file://${event.path}"), arrayOf(
-                                TextEdit(
-                                    Range(), document.text
-                                )
+            if (event is VFileCopyEvent) {
+                val document = event.file.findDocument() ?: continue
+                documentChanges.add(CreateFile("file://${event.path}", null))
+                documentChanges.add(
+                    TextDocumentEdit(
+                        TextDocumentIdentifier("file://${event.path}"), arrayOf(
+                            TextEdit(
+                                Range(), document.text
                             )
                         )
                     )
-                    continue
-                }
-
-                if (event is VFileCreateEvent) {
-                    documentChanges.add(CreateFile("file://${event.path}", null))
-                }
-
-                if (event is VFileDeleteEvent) {
-                    documentChanges.add(DeleteFile("file://${event.path}", null))
-                }
-
-                if (event is VFileMoveEvent) {
-                    documentChanges.add(RenameFile("file://${event.oldPath}", "file://${event.newPath}"))
-                    continue
-                }
-            }
-        }
-
-        override fun before(events: MutableList<out VFileEvent>) {
-            if (!isListening) {
-                return
-            }
-
-            for (event in events) {
-                if (event.file?.let { fileIndex.isInProject(it) } != true) {
-                    continue
-                }
-
-                if (event is VFileContentChangeEvent) {
-                    val document = event.file.findDocument() ?: continue
-                    preChangeText[event.file.path] = document.text
-                    continue
-                }
-            }
-        }
-    }
-
-    inner class MyDocumentListener : DocumentListener {
-        private val preChangeText: MutableMap<String, String> = HashMap()
-
-        override fun beforeDocumentChange(event: DocumentEvent) {
-            val document = event.document
-            val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
-            preChangeText[file.path] = document.text
-        }
-
-        override fun documentChanged(event: DocumentEvent) {
-            val document = event.document
-            val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
-
-            val preText = preChangeText[file.path] ?: return
-            val postText = document.text
-
-            val results = TextEditUtil.computeTextEdits(preText, postText)
-            val edits = results.first
-
-            documentChanges.add(
-                TextDocumentEdit(
-                    TextDocumentIdentifier("file://${file.path}"),
-                    edits.toArray(arrayOf())
                 )
-            )
+                continue
+            }
+
+            if (event is VFileCreateEvent) {
+                documentChanges.add(CreateFile("file://${event.path}", null))
+            }
+
+            if (event is VFileDeleteEvent) {
+                documentChanges.add(DeleteFile("file://${event.path}", null))
+            }
+
+            if (event is VFileMoveEvent) {
+                documentChanges.add(RenameFile("file://${event.oldPath}", "file://${event.newPath}"))
+                continue
+            }
         }
     }
 
+    override fun before(events: MutableList<out VFileEvent>) {
+        for (event in events) {
+            if (event.file?.let { fileIndex.isInProject(it) } != true) {
+                continue
+            }
 
-    companion object {
-        private val commands: MutableList<IntentionAction> = mutableListOf()
+            if (event is VFileContentChangeEvent) {
+                val document = event.file.findDocument() ?: continue
+                preChangeText[event.file.path] = document.text
+                continue
+            }
+        }
+    }
+}
+
+class MyDocumentListener(private val documentChanges: MutableList<AbstractTextDocumentEdit>) : DocumentListener {
+    private val preChangeText: MutableMap<String, String> = HashMap()
+
+    override fun beforeDocumentChange(event: DocumentEvent) {
+        val document = event.document
+        val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
+        preChangeText[file.path] = document.text
+    }
+
+    override fun documentChanged(event: DocumentEvent) {
+        val document = event.document
+        val file = FileDocumentManager.getInstance().getFile(event.document) ?: return
+
+        val preText = preChangeText[file.path] ?: return
+        val postText = document.text
+
+        val results = TextEditUtil.computeTextEdits(preText, postText)
+        val edits = results.first
+
+        documentChanges.add(
+            TextDocumentEdit(
+                TextDocumentIdentifier("file://${file.path}"),
+                edits.toArray(arrayOf())
+            )
+        )
     }
 }
