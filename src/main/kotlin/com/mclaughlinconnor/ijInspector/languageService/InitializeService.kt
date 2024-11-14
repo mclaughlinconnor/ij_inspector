@@ -25,10 +25,6 @@ class InitializeService(
             hoverProvider = true,
             definitionProvider = true,
             referencesProvider = true,
-            diagnosticProvider = DiagnosticOptions(
-                interFileDependencies = false,
-                workspaceDiagnostics = false
-            ),
             codeActionProvider = true,
             executeCommandProvider = ExecuteCommandOptions(arrayOf(CODE_ACTION_COMMAND)),
             renameProvider = true,
