@@ -3,11 +3,16 @@ package com.mclaughlinconnor.ijInspector.languageService
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.HighlightDisplayKey
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
+import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
+import com.intellij.codeInsight.daemon.impl.MainPassesRunner
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileEditor
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.findDocument
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
@@ -16,15 +21,18 @@ import com.intellij.psi.PsiFile
 import com.intellij.util.messages.MessageBusConnection
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 
 class DiagnosticService(
     private val myProject: Project,
-    private val myConnection: Connection
+    private val myConnection: Connection,
 ) {
     private val application = ApplicationManager.getApplication()
     private val messageFactory = com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
     private val profile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
+    private val progressManager = ProgressManager.getInstance()
 
     private lateinit var codeAnalyzer: DaemonCodeAnalyzerImpl
     private var connection: MessageBusConnection? = null
@@ -34,6 +42,41 @@ class DiagnosticService(
             codeAnalyzer = DaemonCodeAnalyzer.getInstance(myProject) as DaemonCodeAnalyzerImpl
         }
         startListening()
+    }
+
+    fun triggerDiagnostics(files: List<PsiFile>, timeoutSeconds: Long = 2) {
+        val mainPassesRunner = MainPassesRunner(myProject, "", null)
+        val indicator = DaemonProgressIndicator()
+
+        application.invokeLater {
+            val task = object : Task.Backgroundable(null, "", true) {
+                override fun run(indicator: ProgressIndicator) {
+                    try {
+                        progressManager.runProcessWithProgressSynchronously(
+                            { mainPassesRunner.runMainPasses(files.map { it.virtualFile }) },
+                            "",
+                            true,
+                            null
+                        )
+                    } catch (e: TimeoutException) {
+                        println("Diagnostics timed out")
+                    }
+                }
+            }
+
+            progressManager.runProcessWithProgressAsynchronously(task, indicator)
+        }
+
+        val latch = java.util.concurrent.CountDownLatch(1)
+        application.executeOnPooledThread {
+            try {
+                if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
+                    indicator.cancel()
+                }
+            } finally {
+                latch.countDown()
+            }
+        }
     }
 
     private fun startListening() {
