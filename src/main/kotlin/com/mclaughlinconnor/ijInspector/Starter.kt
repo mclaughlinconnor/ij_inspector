@@ -11,6 +11,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationStarter
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.mclaughlinconnor.ijInspector.languageService.*
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
@@ -53,19 +54,25 @@ class Starter : ApplicationStarter {
         private lateinit var commandService: CommandService
         private lateinit var completionsService: CompletionsService
         private lateinit var definitionService: DefinitionService
+        private lateinit var dumbService: DumbService
         private lateinit var diagnosticService: DiagnosticService
         private lateinit var documentService: DocumentService
         private lateinit var hoverService: HoverService
         private val initializeService = InitializeService(myConnection)
         private var messageFactory: MessageFactory = MessageFactory()
         private val objectMapper = ObjectMapper()
+        private lateinit var myProject: Project
         private lateinit var referenceService: ReferenceService
         private lateinit var renameService: RenameService
         private var ready: Boolean = false
 
         private fun initServices(project: Project) {
-            DumbService.getInstance(project).runWhenSmart {
+            myProject = project
+
+            dumbService = DumbService.getInstance(project)
+            dumbService.runWhenSmart {
                 ready = true
+                println("Indexing complete.")
                 initializeService.finishInitialise()
             }
 
@@ -73,7 +80,7 @@ class Starter : ApplicationStarter {
             commandService = CommandService(project, myConnection)
             definitionService = DefinitionService(project, myConnection)
             diagnosticService = DiagnosticService(project, myConnection)
-            documentService = DocumentService(project)
+            documentService = DocumentService(project, diagnosticService)
             completionsService = CompletionsService(project, myConnection, documentService)
             hoverService = HoverService(project, myConnection)
             referenceService = ReferenceService(project, myConnection)
@@ -83,6 +90,12 @@ class Starter : ApplicationStarter {
         override fun run() {
             while (true) {
                 val body = myConnection.nextMessage() ?: break
+
+                if (this::dumbService.isInitialized && dumbService.isDumb) {
+                    println("Currently indexing. Waiting...")
+                    dumbService.waitForSmartMode()
+                    println("Indexing complete.")
+                }
 
                 if (tryHandleRequest(body)) {
                     continue
@@ -95,6 +108,11 @@ class Starter : ApplicationStarter {
                 if (tryHandleNotification(body)) {
                     continue
                 }
+            }
+
+            if (myProject.isInitialized) {
+                ProjectManager.getInstance().closeAndDispose(myProject)
+                println("Closed ${myProject.basePath}")
             }
         }
 
