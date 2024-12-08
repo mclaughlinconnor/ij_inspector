@@ -45,11 +45,12 @@ class DiagnosticService(
     }
 
     fun triggerDiagnostics(files: List<PsiFile>, timeoutSeconds: Long = 2) {
-        val mainPassesRunner = MainPassesRunner(myProject, "", null)
+        @Suppress("DialogTitleCapitalization")
+        val mainPassesRunner = MainPassesRunner(myProject, "Running diagnostics...", null)
         val indicator = DaemonProgressIndicator()
 
         application.invokeLater {
-            val task = object : Task.Backgroundable(null, "", true) {
+            val task = object : Task.Backgroundable(null, "Running diagnostics task...", true) {
                 override fun run(indicator: ProgressIndicator) {
                     try {
                         progressManager.runProcessWithProgressSynchronously(
