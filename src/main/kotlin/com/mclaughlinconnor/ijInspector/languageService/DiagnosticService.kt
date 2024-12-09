@@ -44,7 +44,7 @@ class DiagnosticService(
         startListening()
     }
 
-    fun triggerDiagnostics(files: List<PsiFile>, timeoutMillis: Long = 500) {
+    fun triggerDiagnostics(files: List<PsiFile>, timeoutMillis: Long = 200) {
         println("Triggering diagnostics for files: ${files.map { it.virtualFile.path }}")
         ProgressManager.getInstance().run(object : Task.Backgroundable(myProject, "Running diagnostics...", false) {
             override fun run(indicator: ProgressIndicator) {
