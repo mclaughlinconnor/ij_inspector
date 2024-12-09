@@ -61,14 +61,19 @@ class DocumentService(
                         .debounce(150)
                         .collect { params ->
                             val filePath = params.textDocument.uri.substring("file://".length)
-                            doHandleChange(filePath, params, null)
+                            doHandleChange(filePath, params)
                         }
                 }
             }
         }
     }
 
-    private fun doHandleChange(filePath: String, params: DidChangeTextDocumentParams, callback: (() -> Unit)?) {
+    private fun doHandleChange(
+        filePath: String,
+        params: DidChangeTextDocumentParams,
+        triggerDiagnostics: Boolean = true,
+        callback: (() -> Unit)? = null,
+    ) {
         val document = Utils.createDocument(myProject, filePath) ?: return
 
         myApplication.invokeLater {
@@ -81,10 +86,12 @@ class DocumentService(
             }
 
             if (callback != null) {
-                myApplication.executeOnPooledThread(callback)
+                callback()
             }
 
-            diagnosticService.triggerDiagnostics(openFiles)
+            if (triggerDiagnostics) {
+                diagnosticService.triggerDiagnostics(openFiles)
+            }
         }
     }
 
@@ -95,12 +102,12 @@ class DocumentService(
 
     fun immediatelyReEmitMostRecentDidChange(callback: () -> Unit) {
         if (mostRecentDidChange == null) {
-            callback()
+            myApplication.invokeLater(callback)
             return
         }
 
         val filePath = mostRecentDidChange!!.textDocument.uri.substring("file://".length)
-        doHandleChange(filePath, mostRecentDidChange!!, callback)
+        doHandleChange(filePath, mostRecentDidChange!!, false, callback)
 
         mostRecentDidChange = null
     }

@@ -14,7 +14,10 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
+import com.intellij.openapi.progress.util.ProgressIndicatorBase
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
@@ -36,12 +39,14 @@ class CompletionsService(
     private val myConnection: Connection,
     private val documentService: DocumentService,
 ) {
+    private val editorFactory: EditorFactory = EditorFactory.getInstance()
+    private val fileCache: MutableList<String> = mutableListOf()
     private val messageFactory: com.mclaughlinconnor.ijInspector.rpc.MessageFactory =
         com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
     private val myApplication: Application = ApplicationManager.getApplication()
     private val myDocumentationService: DocumentationService = DocumentationService(myProject)
-    private val fileCache: MutableList<String> = mutableListOf()
-    private val editorFactory: EditorFactory = EditorFactory.getInstance()
+    private val progressManager: ProgressManager = ProgressManager.getInstance()
+    private val activeRequests: MutableMap<Int, ProgressIndicator> = HashMap()
 
     private fun createIndicator(
         editor: Editor, completionType: CompletionType, initContext: CompletionInitializationContextImpl,
@@ -68,6 +73,7 @@ class CompletionsService(
     private fun createParameters(
         initContext: CompletionInitializationContextImpl, indicator: CompletionProgressIndicator,
     ): CompletionParameters {
+        indicator.checkCanceled()
         val applyPsiChanges = CompletionInitializationUtil.insertDummyIdentifier(initContext, indicator)
         val hostCopyOffsets = applyPsiChanges.get()
 
@@ -78,17 +84,78 @@ class CompletionsService(
         return parameters
     }
 
-    fun doAutocomplete(
+    fun cancel(id: Int) {
+        val indicator = activeRequests[id] ?: return
+
+        indicator.cancel()
+        activeRequests.remove(id)
+    }
+
+    fun autocomplete(
         id: Int, position: Position, context: CompletionContext?, filePath: String, completionType: CompletionType,
     ) {
+        val indicator = ProgressIndicatorBase()
+        activeRequests[id] = indicator
+
         documentService.immediatelyReEmitMostRecentDidChange {
+            indicator.checkCanceled()
+            val document = createDocument(myProject, filePath) ?: return@immediatelyReEmitMostRecentDidChange
+
+            val cursorOffset = document.getLineStartOffset(position.line) + position.character
+            val editor = editorFactory.createEditor(document, myProject) ?: return@immediatelyReEmitMostRecentDidChange
+            val caret = editor.caretModel.primaryCaret
+            caret.moveToOffset(cursorOffset)
+
+            val initContext = CompletionInitializationUtil.createCompletionInitializationContext(
+                myProject,
+                editor,
+                caret,
+                1,
+                completionType
+            )
+            val completionIndicator = createIndicator(editor, completionType, initContext)
+            indicator.addStateDelegate(completionIndicator)
+
+            val execFn = { doAutocomplete(id, position, context, filePath, completionIndicator, initContext) }
+            val doneFn = { activeRequests.remove(id) }
+            val task = object : Task.Backgroundable(null, "Running diagnostics task...", true) {
+                override fun run(indicator: ProgressIndicator) {
+                    execFn()
+                }
+
+                override fun onFinished() {
+                    doneFn()
+                }
+
+                override fun onCancel() {
+                    doneFn()
+                }
+            }
+
+            progressManager.runProcessWithProgressAsynchronously(task, indicator)
+        }
+    }
+
+    private fun doAutocomplete(
+        id: Int,
+        position: Position,
+        context: CompletionContext?,
+        filePath: String,
+        indicator: CompletionProgressIndicator,
+        initContext: CompletionInitializationContextImpl,
+    ) {
+        indicator.checkCanceled()
+        documentService.immediatelyReEmitMostRecentDidChange {
+            indicator.checkCanceled()
+
             context?.triggerCharacter = null
             context?.triggerKind = CompletionTriggerKindEnum.Invoked
 
             val document = createDocument(myProject, filePath) ?: return@immediatelyReEmitMostRecentDidChange
             val documentHashCode = pushToCache(document.text)
 
-            fetchCompletions(position, filePath, completionType) { completions, _, _, _ ->
+            fetchCompletions(indicator, initContext) { completions ->
+                indicator.checkCanceled()
                 val response = formatResults(
                     id, completions, filePath, position, context?.triggerCharacter?.get(0) ?: '\u0000', documentHashCode
                 )
@@ -100,15 +167,64 @@ class CompletionsService(
     fun resolveCompletion(
         id: Int, completionType: CompletionType, toResolve: CompletionItem,
     ) {
+        val indicator = ProgressIndicatorBase()
+        activeRequests[id] = indicator
+
+        documentService.immediatelyReEmitMostRecentDidChange {
+            val document =
+                createDocument(myProject, toResolve.data.filePath) ?: return@immediatelyReEmitMostRecentDidChange
+            val position = toResolve.data.position
+
+            val cursorOffset = document.getLineStartOffset(position.line) + position.character
+            val editor = editorFactory.createEditor(document, myProject) ?: return@immediatelyReEmitMostRecentDidChange
+            val caret = editor.caretModel.primaryCaret
+            caret.moveToOffset(cursorOffset)
+
+            val initContext = CompletionInitializationUtil.createCompletionInitializationContext(
+                myProject,
+                editor,
+                caret,
+                1,
+                completionType
+            )
+            val completionIndicator = createIndicator(editor, completionType, initContext)
+            indicator.addStateDelegate(completionIndicator)
+
+            val execFn = { doResolveCompletion(id, toResolve, completionIndicator, initContext) }
+            val doneFn = { activeRequests.remove(id) }
+            val task = object : Task.Backgroundable(null, "Running diagnostics task...", true) {
+                override fun run(indicator: ProgressIndicator) {
+                    execFn()
+                }
+
+                override fun onFinished() {
+                    doneFn()
+                }
+
+                override fun onCancel() {
+                    doneFn()
+                }
+            }
+
+            progressManager.runProcessWithProgressAsynchronously(task, indicator)
+        }
+
+    }
+
+    private fun doResolveCompletion(
+        id: Int,
+        toResolve: CompletionItem,
+        indicator: CompletionProgressIndicator,
+        initContext: CompletionInitializationContextImpl,
+    ) {
         documentService.immediatelyReEmitMostRecentDidChange {
             val filePath = toResolve.data.filePath
             val position = toResolve.data.position
             val triggerCharacter = toResolve.data.triggerCharacter
-            fetchCompletions(
-                position,
-                filePath,
-                completionType,
-            ) { completions, _, document, initContext ->
+
+            val document = createDocument(myProject, filePath) ?: return@immediatelyReEmitMostRecentDidChange
+
+            fetchCompletions(indicator, initContext) { completions ->
                 val documentHashCode = toResolve.data.documentHashCode
 
                 var initialCompletionDocumentContent = ""
@@ -182,40 +298,32 @@ class CompletionsService(
     }
 
     private fun fetchCompletions(
-        position: Position,
-        filePath: String,
-        completionType: CompletionType,
-        callback: (completions: MutableList<CompletionResult>, editor: Editor, document: Document, initContext: CompletionInitializationContext) -> Unit,
+        indicator: CompletionProgressIndicator,
+        initContext: CompletionInitializationContextImpl,
+        callback: (completions: MutableList<CompletionResult>) -> Unit,
     ) {
+        indicator.checkCanceled()
         val results: MutableList<CompletionResult> = ArrayList()
         val consumer: Consumer<CompletionResult> = Consumer { result -> results.add(result) }
 
         myApplication.invokeLater {
-            val document = createDocument(myProject, filePath) ?: return@invokeLater
+            indicator.checkCanceled()
 
-            val cursorOffset = document.getLineStartOffset(position.line) + position.character
-
-            val editor = editorFactory.createEditor(document, myProject) ?: return@invokeLater
-            val caret = editor.caretModel.primaryCaret
-            caret.moveToOffset(cursorOffset)
-
-            val initContext = CompletionInitializationUtil.createCompletionInitializationContext(
-                myProject, editor, caret, 1, completionType
-            )
-
-            val indicator = createIndicator(editor, completionType, initContext)
             val parameters = createParameters(initContext, indicator)
 
             myApplication.executeOnPooledThread {
+                indicator.checkCanceled()
                 ProgressManager.getInstance().runProcess({
                     myApplication.runReadAction {
                         CompletionService.getCompletionService().performCompletion(parameters, consumer)
                     }
-                }, EmptyProgressIndicator())
+                }, indicator)
 
                 myApplication.invokeLater {
+
+                    indicator.checkCanceled()
                     val entries = results.subList(0, results.size.coerceAtMost(20))
-                    callback(entries, editor, document, initContext)
+                    callback(entries)
                 }
             }
 

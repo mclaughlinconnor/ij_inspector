@@ -173,6 +173,16 @@ class Starter : ApplicationStarter {
         }
 
         private fun handleNotification(notification: Notification) {
+            println(notification.method)
+
+            if (notification.method == "$/cancelRequest") {
+                val params: CancelParams = objectMapper.convertValue(notification.params, CancelParams::class.java)
+                // Only completion service can handle cancellations for now
+                completionsService.cancel(params.id)
+                myConnection.write(messageFactory.newMessage(Response(params.id)))
+                return
+            }
+
             if (notification.method == "workspace/didCreateFiles") {
                 val params: CreateFilesParams =
                     objectMapper.convertValue(notification.params, CreateFilesParams::class.java)
@@ -213,6 +223,7 @@ class Starter : ApplicationStarter {
         private fun handleResponse() {}
 
         private fun handleRequest(request: Request) {
+            println(request.method)
             if (request.method == "initialize") {
                 val params: InitializeParams =
                     objectMapper.convertValue(request.params, InitializeParams::class.java)
@@ -255,7 +266,7 @@ class Starter : ApplicationStarter {
                 val params: CompletionParams =
                     objectMapper.convertValue(request.params, CompletionParams::class.java)
                 val fileUri = params.textDocument.uri.substring("file://".length)
-                completionsService.doAutocomplete(
+                completionsService.autocomplete(
                     request.id,
                     params.position,
                     params.context,
