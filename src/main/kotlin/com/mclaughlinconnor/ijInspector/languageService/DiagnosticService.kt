@@ -3,7 +3,6 @@ package com.mclaughlinconnor.ijInspector.languageService
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.HighlightDisplayKey
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
-import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.MainPassesRunner
 import com.intellij.lang.annotation.HighlightSeverity
@@ -21,6 +20,8 @@ import com.intellij.psi.PsiFile
 import com.intellij.util.messages.MessageBusConnection
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
+import java.util.concurrent.CancellationException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
@@ -32,7 +33,6 @@ class DiagnosticService(
     private val application = ApplicationManager.getApplication()
     private val messageFactory = com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
     private val profile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
-    private val progressManager = ProgressManager.getInstance()
 
     private lateinit var codeAnalyzer: DaemonCodeAnalyzerImpl
     private var connection: MessageBusConnection? = null
@@ -45,39 +45,43 @@ class DiagnosticService(
     }
 
     fun triggerDiagnostics(files: List<PsiFile>, timeoutSeconds: Long = 2) {
-        @Suppress("DialogTitleCapitalization")
-        val mainPassesRunner = MainPassesRunner(myProject, "Running diagnostics...", null)
-        val indicator = DaemonProgressIndicator()
+        println("Triggering diagnostics for files: ${files.map { it.virtualFile.path }}")
+        ProgressManager.getInstance().run(object : Task.Backgroundable(myProject, "Running diagnostics...", false) {
+            override fun run(indicator: ProgressIndicator) {
+                // Ensure we're using the correct thread and progress indicator
+                ApplicationManager.getApplication().runReadAction {
+                    val mainPassesRunner = MainPassesRunner(project, "Running diagnostics...", null)
 
-        application.invokeLater {
-            val task = object : Task.Backgroundable(null, "Running diagnostics task...", true) {
-                override fun run(indicator: ProgressIndicator) {
+                    // Use a timeout mechanism within the same thread
+                    val timeoutFuture = CompletableFuture.supplyAsync {
+                        try {
+                            ProgressManager.getInstance().executeProcessUnderProgress({
+                                try {
+                                    mainPassesRunner.runMainPasses(files.map { it.virtualFile })
+                                } catch (_: CancellationException) {
+                                    // Intentionally do nothing. Logged below
+                                }
+                            }, indicator)
+                            true
+                        } catch (e: Exception) {
+                            println("Error running diagnostics: $e")
+                            false
+                        }
+                    }
+
                     try {
-                        progressManager.runProcessWithProgressSynchronously(
-                            { mainPassesRunner.runMainPasses(files.map { it.virtualFile }) },
-                            "",
-                            true,
-                            null
-                        )
+                        val result = timeoutFuture.get(timeoutSeconds, TimeUnit.SECONDS)
+                        if (!result) {
+                            indicator.cancel()
+                        }
                     } catch (e: TimeoutException) {
-                        println("Diagnostics timed out")
+                        indicator.cancel()
+                        timeoutFuture.cancel(true)
+                        println("Diagnostics main passes timed out after $timeoutSeconds seconds")
                     }
                 }
             }
-
-            progressManager.runProcessWithProgressAsynchronously(task, indicator)
-        }
-
-        val latch = java.util.concurrent.CountDownLatch(1)
-        application.executeOnPooledThread {
-            try {
-                if (!latch.await(timeoutSeconds, TimeUnit.SECONDS)) {
-                    indicator.cancel()
-                }
-            } finally {
-                latch.countDown()
-            }
-        }
+        })
     }
 
     private fun startListening() {
