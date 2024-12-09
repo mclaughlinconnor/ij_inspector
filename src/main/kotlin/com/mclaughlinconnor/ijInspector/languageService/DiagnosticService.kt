@@ -44,7 +44,7 @@ class DiagnosticService(
         startListening()
     }
 
-    fun triggerDiagnostics(files: List<PsiFile>, timeoutSeconds: Long = 2) {
+    fun triggerDiagnostics(files: List<PsiFile>, timeoutMillis: Long = 500) {
         println("Triggering diagnostics for files: ${files.map { it.virtualFile.path }}")
         ProgressManager.getInstance().run(object : Task.Backgroundable(myProject, "Running diagnostics...", false) {
             override fun run(indicator: ProgressIndicator) {
@@ -70,14 +70,14 @@ class DiagnosticService(
                     }
 
                     try {
-                        val result = timeoutFuture.get(timeoutSeconds, TimeUnit.SECONDS)
+                        val result = timeoutFuture.get(timeoutMillis, TimeUnit.MILLISECONDS)
                         if (!result) {
                             indicator.cancel()
                         }
                     } catch (e: TimeoutException) {
                         indicator.cancel()
                         timeoutFuture.cancel(true)
-                        println("Diagnostics main passes timed out after $timeoutSeconds seconds")
+                        println("Diagnostics main passes timed out after $timeoutMillis milliseconds")
                     }
                 }
             }
