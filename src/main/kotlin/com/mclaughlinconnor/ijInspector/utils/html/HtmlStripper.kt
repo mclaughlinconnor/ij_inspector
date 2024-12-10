@@ -118,7 +118,7 @@ class HtmlStripper : XmlRecursiveElementVisitor() {
             currentListType = ListType.Ordered; MarkdownSpan.Empty
         }
 
-        "li" -> if (currentListType == ListType.Unordered) MarkdownSpan.prefix(" * ") else MarkdownSpan.prefix(" 1. ")
+        "li" -> if (currentListType == ListType.Unordered) MarkdownSpan.prefix("\n * ") else MarkdownSpan.prefix("\n 1. ")
 
         "p" -> if (atLineStart) MarkdownSpan.prefix("\n") else MarkdownSpan.prefix("\n\n")
 
