@@ -179,7 +179,6 @@ class Starter : ApplicationStarter {
                 val params: CancelParams = objectMapper.convertValue(notification.params, CancelParams::class.java)
                 // Only completion service can handle cancellations for now
                 completionsService.cancel(params.id)
-                myConnection.write(messageFactory.newMessage(Response(params.id)))
                 return
             }
 

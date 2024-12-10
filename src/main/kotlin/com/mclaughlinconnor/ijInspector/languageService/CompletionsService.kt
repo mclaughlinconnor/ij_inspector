@@ -89,6 +89,8 @@ class CompletionsService(
 
         indicator.cancel()
         activeRequests.remove(id)
+
+        myConnection.write(messageFactory.newMessage(Response(id)))
     }
 
     fun autocomplete(
