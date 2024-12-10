@@ -132,7 +132,7 @@ class DocumentService(
             fileEditorManager.openFile(file.virtualFile, true)
             fileEditorManager.setSelectedEditor(file.virtualFile, TextEditorProvider.getInstance().editorTypeId)
 
-            diagnosticService.triggerDiagnostics(openFiles, 10 * 1000)
+            diagnosticService.triggerDiagnostics(openFiles)
         }
     }
 
