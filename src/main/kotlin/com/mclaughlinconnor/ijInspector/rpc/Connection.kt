@@ -11,6 +11,8 @@ import java.net.Socket
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.LinkedBlockingQueue
 
+const val MAX_HEADER_LENGTH = 32
+
 class Connection(private val mySocket: Socket) {
     private lateinit var myInputStream: InputStream
     private lateinit var myOutputStream: OutputStream
@@ -60,7 +62,7 @@ class Connection(private val mySocket: Socket) {
     }
 
     private fun readMessage(reader: InputStream): String {
-        val header = ByteArray(8192)
+        val header = ArrayDeque<Byte>(MAX_HEADER_LENGTH)
 
         val r: Int = '\r'.code
         val n: Int = '\n'.code
@@ -68,6 +70,7 @@ class Connection(private val mySocket: Socket) {
         var dividerLength = 0
         var b: Int
         var index = 0
+
         while (dividerLength != 4) {
             b = reader.read()
 
@@ -76,17 +79,27 @@ class Connection(private val mySocket: Socket) {
                     dividerLength = 0
                     lastDivider = n
                     index = 0
+                    header.clear()
                 } else {
                     lastDivider = b
                     ++dividerLength
                 }
             } else {
-                header[index] = b.toByte()
-                index++
+                header.add(b.toByte())
+
+                if (header.size >= MAX_HEADER_LENGTH) {
+                    header.removeFirst()
+                } else {
+                    index++
+                }
             }
+
         }
 
-        val contentLengthBytes = header.sliceArray("Content-Length: ".length..<index)
+        val contentLengthBytes: ByteArray = header
+            .toArray(arrayOf<Byte>())
+            .sliceArray("Content-Length: ".length..<index)
+            .toByteArray()
         val contentLength = String(contentLengthBytes).toInt()
 
         val body = ByteArray(contentLength)
