@@ -1,6 +1,5 @@
 package com.mclaughlinconnor.ijInspector.utils.html
 
-import com.intellij.openapi.util.text.StringUtil
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.XmlRecursiveElementVisitor
@@ -60,7 +59,9 @@ class HtmlStripper : XmlRecursiveElementVisitor() {
 
         when (element.node.elementType) {
             XmlTokenType.XML_DATA_CHARACTERS -> markdownBuilder.append(element.text)
-            XmlTokenType.XML_CHAR_ENTITY_REF -> markdownBuilder.append(StringUtil.unescapeXmlEntities(element.text))
+            XmlTokenType.XML_CHAR_ENTITY_REF, XmlTokenType.XML_ENTITY_REF_TOKEN -> {
+                markdownBuilder.append(unescapeXmlEntities(element.text))
+            }
         }
     }
 

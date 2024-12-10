@@ -22,7 +22,7 @@ class DocumentationFormatter(val myProject: Project) {
 
     fun format(html: String): String {
         val htmlFile =
-            PsiFileFactory.getInstance(myProject).createFileFromText("javadoc.html", HtmlFileType.INSTANCE, html)
+            PsiFileFactory.getInstance(myProject).createFileFromText("documentation.html", HtmlFileType.INSTANCE, html)
         htmlFile.accept(formatter)
         val result = formatter.result
         formatter.reset()
@@ -45,12 +45,14 @@ class DocumentationFormatter(val myProject: Project) {
 
         private fun convertToMarkDown(html: String): String {
             val htmlFile = PsiFileFactory.getInstance(myProject).createFileFromText(
-                "javadoc.html", HtmlFileType.INSTANCE, html
+                "documentation.html",
+                HtmlFileType.INSTANCE,
+                escapeOnlyBraces(html) // { gets parsed in HTML as part of an Angular {{prop}}
             )
             htmlFile.accept(htmlStripper)
             val result = htmlStripper.result
             htmlStripper.reset()
-            return StringUtil.unescapeXmlEntities(result).replace("&nbsp;", " ").replace("&#32;", " ")
+            return unescapeXmlEntities(result)
         }
 
         private fun handleBottom(tag: XmlTag) {
