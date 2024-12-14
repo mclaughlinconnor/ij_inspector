@@ -206,7 +206,7 @@ class Starter : ApplicationStarter {
             if (notification.method == "textDocument/didChange") {
                 val params: DidChangeTextDocumentParams =
                     objectMapper.convertValue(notification.params, DidChangeTextDocumentParams::class.java)
-                documentService.handleChange(params)
+                documentService.handleChange(params, DiagnosticService::publishDiagnostics)
                 return
             }
 
@@ -214,7 +214,7 @@ class Starter : ApplicationStarter {
                 val params: DidOpenTextDocumentParams =
                     objectMapper.convertValue(notification.params, DidOpenTextDocumentParams::class.java)
                 val filePath = params.textDocument.uri.substring("file://".length)
-                documentService.doOpen(filePath)
+                documentService.doOpen(filePath, diagnosticService::triggerDiagnostics)
                 return
             }
         }

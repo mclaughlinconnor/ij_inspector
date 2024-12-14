@@ -1,40 +1,32 @@
 package com.mclaughlinconnor.ijInspector.languageService
 
-import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
-import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
 import com.intellij.codeInsight.daemon.impl.EditorTracker
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.RangeMarker
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
-import com.mclaughlinconnor.ijInspector.lsp.CreateFilesParams
-import com.mclaughlinconnor.ijInspector.lsp.DeleteFilesParams
-import com.mclaughlinconnor.ijInspector.lsp.DidChangeTextDocumentParams
-import com.mclaughlinconnor.ijInspector.lsp.RenameFilesParams
+import com.intellij.psi.PsiManager
+import com.intellij.util.application
+import com.mclaughlinconnor.ijInspector.lsp.*
+import com.mclaughlinconnor.ijInspector.rpc.Connection
 import com.mclaughlinconnor.ijInspector.utils.Utils
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import com.mclaughlinconnor.ijInspector.utils.lspRangeToOffsets
+import com.mclaughlinconnor.ijInspector.utils.offsetsToLspRange
 
 const val OPEN_FILES_LIMIT = 10
 
-@OptIn(FlowPreview::class)
 class DocumentService(
     private val myProject: Project,
-    private val diagnosticService: DiagnosticService,
+    private val myConnection: Connection,
 ) {
-    @Suppress("UnstableApiUsage")
-    private lateinit var codeAnalyzer: DaemonCodeAnalyzerImpl
     private val editorFactory = EditorFactory.getInstance()
 
     @Suppress("UnstableApiUsage")
@@ -43,36 +35,14 @@ class DocumentService(
     private val localFileSystem = LocalFileSystem.getInstance()
     private val myApplication: Application = ApplicationManager.getApplication()
     private val psiDocumentManager = PsiDocumentManager.getInstance(myProject)
-    private val didChangeBuffer = MutableSharedFlow<DidChangeTextDocumentParams>(0, 20, BufferOverflow.DROP_OLDEST)
-    private var mostRecentDidChange: DidChangeTextDocumentParams? = null
     private val openFiles: MutableList<PsiFile> = mutableListOf()
     private val openFilesDiagnostics: MutableMap<PsiFile, List<Diagnostic>> = HashMap()
+    private val openFilesRangeMarkers: MutableMap<PsiFile, List<RangeMarker>> = HashMap()
     private var openEditors: MutableList<Editor> = mutableListOf()
-
-    init {
-        myApplication.runReadAction {
-            @Suppress("UnstableApiUsage")
-            codeAnalyzer = DaemonCodeAnalyzer.getInstance(myProject) as DaemonCodeAnalyzerImpl
-        }
-
-        myApplication.executeOnPooledThread {
-            runBlocking {
-                launch {
-                    didChangeBuffer
-                        .debounce(150)
-                        .collect { params ->
-                            val filePath = params.textDocument.uri.substring("file://".length)
-                            doHandleChange(filePath, params)
-                        }
-                }
-            }
-        }
-    }
 
     private fun doHandleChange(
         filePath: String,
         params: DidChangeTextDocumentParams,
-        triggerDiagnostics: Boolean = true,
         callback: (() -> Unit)? = null,
     ) {
         val document = Utils.createDocument(myProject, filePath) ?: return
@@ -89,6 +59,8 @@ class DocumentService(
             if (callback != null) {
                 callback()
             }
+        }
+    }
 
     fun updateDiagnostics(psiFile: PsiFile, diagnostics: List<Diagnostic>) {
         if (openFiles.contains(psiFile)) {
@@ -105,24 +77,38 @@ class DocumentService(
         }
     }
 
-    fun handleChange(params: DidChangeTextDocumentParams) {
-        mostRecentDidChange = params
-        didChangeBuffer.tryEmit(params)
-    }
+    private fun shiftDiagnostic(psiFile: PsiFile) {
+        val diagnostics = openFilesDiagnostics[psiFile] ?: return
+        val rangeMarkers = openFilesRangeMarkers[psiFile] ?: return
+        val document = psiFile.fileDocument
 
-    fun immediatelyReEmitMostRecentDidChange(callback: () -> Unit) {
-        if (mostRecentDidChange == null) {
-            myApplication.invokeLater(callback)
-            return
+        for (i in diagnostics.indices) {
+            diagnostics[i].range = offsetsToLspRange(document, rangeMarkers[i].textRange)
         }
 
-        val filePath = mostRecentDidChange!!.textDocument.uri.substring("file://".length)
-        doHandleChange(filePath, mostRecentDidChange!!, false, callback)
-
-        mostRecentDidChange = null
+        openFilesDiagnostics[psiFile] = diagnostics
     }
 
-    fun doOpen(filePath: String) {
+    fun handleChange(
+        params: DidChangeTextDocumentParams,
+        publishDiagnostics: ((DocumentService, Connection, PsiFile, List<Diagnostic>) -> Unit),
+    ) {
+        val filePath = params.textDocument.uri.substring("file://".length)
+        val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath) ?: return
+
+        application.invokeLater {
+            application.runReadAction {
+                val file = PsiManager.getInstance(myProject).findFile(virtualFile) ?: return@runReadAction
+
+                doHandleChange(filePath, params) {
+                    shiftDiagnostic(file)
+                    publishDiagnostics(this, myConnection, file, openFilesDiagnostics[file] ?: listOf())
+                }
+            }
+        }
+    }
+
+    fun doOpen(filePath: String, triggerDiagnostics: ((openFiles: List<PsiFile>) -> Unit)) {
         val document = Utils.createDocument(myProject, filePath) ?: return
         myApplication.invokeLater {
             val file = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
@@ -142,7 +128,7 @@ class DocumentService(
             fileEditorManager.openFile(file.virtualFile, true)
             fileEditorManager.setSelectedEditor(file.virtualFile, TextEditorProvider.getInstance().editorTypeId)
 
-            diagnosticService.triggerDiagnostics(openFiles)
+            triggerDiagnostics(openFiles)
         }
     }
 

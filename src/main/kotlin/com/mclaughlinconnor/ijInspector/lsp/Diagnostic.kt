@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty
 
 class Diagnostic(
     @JsonProperty
-    val range: Range = Range.EMPTY,
+    var range: Range = Range.EMPTY,
 
     @JsonProperty
     val severity: DiagnosticSeverity = DiagnosticSeverityEnum.Error,

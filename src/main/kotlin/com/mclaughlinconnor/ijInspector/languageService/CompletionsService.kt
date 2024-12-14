@@ -96,15 +96,15 @@ class CompletionsService(
     fun autocomplete(
         id: Int, position: Position, context: CompletionContext?, filePath: String, completionType: CompletionType,
     ) {
-        val indicator = ProgressIndicatorBase()
-        activeRequests[id] = indicator
+        myApplication.invokeLater {
+            val indicator = ProgressIndicatorBase()
+            activeRequests[id] = indicator
 
-        documentService.immediatelyReEmitMostRecentDidChange {
             indicator.checkCanceled()
-            val document = createDocument(myProject, filePath) ?: return@immediatelyReEmitMostRecentDidChange
+            val document = createDocument(myProject, filePath) ?: return@invokeLater
 
             val cursorOffset = document.getLineStartOffset(position.line) + position.character
-            val editor = editorFactory.createEditor(document, myProject) ?: return@immediatelyReEmitMostRecentDidChange
+            val editor = editorFactory.createEditor(document, myProject) ?: return@invokeLater
             val caret = editor.caretModel.primaryCaret
             caret.moveToOffset(cursorOffset)
 
@@ -147,13 +147,12 @@ class CompletionsService(
         initContext: CompletionInitializationContextImpl,
     ) {
         indicator.checkCanceled()
-        documentService.immediatelyReEmitMostRecentDidChange {
-            indicator.checkCanceled()
 
+        myApplication.invokeLater {
             context?.triggerCharacter = null
             context?.triggerKind = CompletionTriggerKindEnum.Invoked
 
-            val document = createDocument(myProject, filePath) ?: return@immediatelyReEmitMostRecentDidChange
+            val document = createDocument(myProject, filePath) ?: return@invokeLater
             val documentHashCode = pushToCache(document.text)
 
             fetchCompletions(indicator, initContext) { completions ->
@@ -172,13 +171,13 @@ class CompletionsService(
         val indicator = ProgressIndicatorBase()
         activeRequests[id] = indicator
 
-        documentService.immediatelyReEmitMostRecentDidChange {
+        myApplication.invokeLater {
             val document =
-                createDocument(myProject, toResolve.data.filePath) ?: return@immediatelyReEmitMostRecentDidChange
+                createDocument(myProject, toResolve.data.filePath) ?: return@invokeLater
             val position = toResolve.data.position
 
             val cursorOffset = document.getLineStartOffset(position.line) + position.character
-            val editor = editorFactory.createEditor(document, myProject) ?: return@immediatelyReEmitMostRecentDidChange
+            val editor = editorFactory.createEditor(document, myProject) ?: return@invokeLater
             val caret = editor.caretModel.primaryCaret
             caret.moveToOffset(cursorOffset)
 
@@ -210,7 +209,6 @@ class CompletionsService(
 
             progressManager.runProcessWithProgressAsynchronously(task, indicator)
         }
-
     }
 
     private fun doResolveCompletion(
@@ -219,12 +217,12 @@ class CompletionsService(
         indicator: CompletionProgressIndicator,
         initContext: CompletionInitializationContextImpl,
     ) {
-        documentService.immediatelyReEmitMostRecentDidChange {
-            val filePath = toResolve.data.filePath
-            val position = toResolve.data.position
-            val triggerCharacter = toResolve.data.triggerCharacter
+        val filePath = toResolve.data.filePath
+        val position = toResolve.data.position
+        val triggerCharacter = toResolve.data.triggerCharacter
 
-            val document = createDocument(myProject, filePath) ?: return@immediatelyReEmitMostRecentDidChange
+        myApplication.invokeLater {
+            val document = createDocument(myProject, filePath) ?: return@invokeLater
 
             fetchCompletions(indicator, initContext) { completions ->
                 val documentHashCode = toResolve.data.documentHashCode
