@@ -27,6 +27,9 @@ class CodeActionService(private val myProject: Project, private val myConnection
     fun doCodeActions(requestId: Int, params: CodeActionParams) {
         val document = Utils.createDocument(myProject, params.textDocument.uri.substring("file://".length)) ?: return
 
+        val startOffset = document.getLineStartOffset(params.range.start.line)
+        val endOffset = document.getLineEndOffset(params.range.end.line)
+
         var highlights: List<HighlightInfo> = listOf()
         application.runReadAction {
             @Suppress("UnstableApiUsage")
@@ -44,6 +47,10 @@ class CodeActionService(private val myProject: Project, private val myConnection
             val quickFixes: MutableList<IntentionAction> = mutableListOf()
 
             for (highlight in highlights) {
+                if (!(startOffset <= highlight.endOffset && endOffset >= highlight.startOffset)) {
+                    continue
+                }
+
                 highlight.findRegisteredQuickFix<Any> { descriptor: IntentionActionDescriptor, _: TextRange? ->
                     if (!descriptor.action.isAvailable(myProject, editor, psiFile)) {
                         return@findRegisteredQuickFix
