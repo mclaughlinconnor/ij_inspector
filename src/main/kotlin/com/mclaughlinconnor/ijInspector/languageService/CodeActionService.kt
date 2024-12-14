@@ -10,6 +10,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
+import com.intellij.profile.codeInspection.InspectionProjectProfileManager
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.application
 import com.mclaughlinconnor.ijInspector.lsp.*
@@ -23,6 +24,7 @@ class CodeActionService(private val myProject: Project, private val myConnection
     private var myApplication: Application = ApplicationManager.getApplication()
     private val messageFactory: MessageFactory = MessageFactory()
     private val commandService: CommandService = CommandService(myProject, myConnection)
+    private val inspectionProfile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
 
     fun doCodeActions(requestId: Int, params: CodeActionParams) {
         val document = Utils.createDocument(myProject, params.textDocument.uri.substring("file://".length)) ?: return
@@ -44,7 +46,7 @@ class CodeActionService(private val myProject: Project, private val myConnection
             val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater
             val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
 
-            val quickFixes: MutableList<IntentionAction> = mutableListOf()
+            val codeActions: MutableList<CodeAction> = mutableListOf()
 
             for (highlight in highlights) {
                 if (!(startOffset <= highlight.endOffset && endOffset >= highlight.startOffset)) {
@@ -56,16 +58,16 @@ class CodeActionService(private val myProject: Project, private val myConnection
                         return@findRegisteredQuickFix
                     }
 
-                    quickFixes.add(descriptor.action)
+                    val quickFix = descriptor.action
+
+                    quickFix.generatePreview(myProject, editor, psiFile)
+                    val diagnostic = DiagnosticService.constructDiagnostic(inspectionProfile, highlight, document)
+                    val action = constructCodeAction(quickFix, psiFile.virtualFile.path, diagnostic)
+                    codeActions.add(action)
+                    commandService.addCommand(quickFix)
+
                     return@findRegisteredQuickFix
                 }
-            }
-
-            val codeActions: MutableList<CodeAction> = mutableListOf()
-            for (quickFix in quickFixes) {
-                val action = constructCodeAction(quickFix, psiFile.virtualFile.path)
-                codeActions.add(action)
-                commandService.addCommand(quickFix)
             }
 
             val response = Response(requestId, codeActions)
@@ -73,11 +75,15 @@ class CodeActionService(private val myProject: Project, private val myConnection
         }
     }
 
-    private fun constructCodeAction(quickFix: IntentionAction, path: String): CodeAction {
+    private fun constructCodeAction(
+        quickFix: IntentionAction,
+        path: String,
+        diagnostic: Diagnostic? = null,
+    ): CodeAction {
         return CodeAction(
             title = quickFix.text,
             kind = CodeActionKindEnum.QuickFix,
-            diagnostics = listOf(),
+            diagnostics = if (diagnostic != null) listOf(diagnostic) else null,
             isPreferred = true,
             disabled = null,
             edit = null,

@@ -31,7 +31,6 @@ class DiagnosticService(
     private val myConnection: Connection,
 ) {
     private val application = ApplicationManager.getApplication()
-    private val messageFactory = com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
     private val profile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
 
     private lateinit var codeAnalyzer: DaemonCodeAnalyzerImpl
@@ -115,71 +114,82 @@ class DiagnosticService(
                     )
                     val diagnostics: MutableList<Diagnostic> = mutableListOf()
                     for (highlight in highlights) {
-                        diagnostics.add(constructDiagnostic(highlight, document))
+                        diagnostics.add(constructDiagnostic(profile, highlight, document))
                     }
 
-                    publishDiagnostics(psiFile, diagnostics)
+                    publishDiagnostics(myConnection, psiFile, diagnostics)
                 }
             }
         }
     }
 
-    private fun publishDiagnostics(file: PsiFile, diagnostics: List<Diagnostic>) {
-        val publishDiagnosticsParams =
-            PublishDiagnosticsParams("file://${file.virtualFile.path}", null, diagnostics)
-        val notification = Notification("textDocument/publishDiagnostics", publishDiagnosticsParams)
-        val message = messageFactory.newMessage(notification)
+    companion object {
+        private val messageFactory = com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
 
-        myConnection.write(message)
-    }
+        fun constructDiagnostic(
+            profile: InspectionProfileImpl,
+            highlighter: HighlightInfo,
+            document: Document,
+        ): Diagnostic {
+            var severity = DiagnosticSeverityEnum.Information
 
-    private fun constructDiagnostic(highlighter: HighlightInfo, document: Document): Diagnostic {
-        var severity = DiagnosticSeverityEnum.Information
+            val message: String = highlighter.description ?: "" // can somehow be null without types saying so
+            val toolName: String? = highlighter.inspectionToolId
+            if (toolName != null) {
+                val displayKey = HighlightDisplayKey.findById(toolName)
+                if (displayKey != null) {
+                    severity = convertSeverity(profile.getErrorLevel(displayKey, null).severity)
+                }
+            } else {
+                severity = convertSeverity(highlighter.severity)
+            }
 
-        val message: String = highlighter.description ?: "" // can somehow be null without types saying so
-        val toolName: String? = highlighter.inspectionToolId
-        if (toolName != null) {
-            val displayKey = HighlightDisplayKey.findById(toolName)
-            if (displayKey != null) {
-                severity = convertSeverity(profile.getErrorLevel(displayKey, null).severity)
+            val startOffset = highlighter.startOffset
+            val endOffset = highlighter.endOffset
+
+            val startLine = document.getLineNumber(startOffset)
+            val endLine = document.getLineNumber(endOffset)
+
+            val startLinePosition = startOffset - document.getLineStartOffset(startLine)
+            val endLinePosition = endOffset - document.getLineStartOffset(endLine)
+
+            val startPosition = Position(startLine, startLinePosition)
+            val endPosition = Position(endLine, endLinePosition)
+
+            return Diagnostic(
+                Range(startPosition, endPosition),
+                severity,
+                code = toolName,
+                codeDescription = null,
+                message,
+                tags = null,
+                relatedInformation = null,
+                data = null
+            )
+        }
+
+        private fun convertSeverity(severity: HighlightSeverity): DiagnosticSeverity {
+            @Suppress("DEPRECATION") return when (severity) {
+                HighlightSeverity.INFORMATION -> DiagnosticSeverityEnum.Hint
+                HighlightSeverity.TEXT_ATTRIBUTES -> DiagnosticSeverityEnum.Information
+                HighlightSeverity.GENERIC_SERVER_ERROR_OR_WARNING -> DiagnosticSeverityEnum.Warning
+                HighlightSeverity.INFO -> DiagnosticSeverityEnum.Hint
+                HighlightSeverity.WEAK_WARNING -> DiagnosticSeverityEnum.Information
+                HighlightSeverity.WARNING -> DiagnosticSeverityEnum.Warning
+                HighlightSeverity.ERROR -> DiagnosticSeverityEnum.Error
+                else -> DiagnosticSeverityEnum.Error
             }
         }
 
-        val startOffset = highlighter.startOffset
-        val endOffset = highlighter.endOffset
+        private fun publishDiagnostics(connection: Connection, file: PsiFile, diagnostics: List<Diagnostic>) {
+            val publishDiagnosticsParams =
+                PublishDiagnosticsParams("file://${file.virtualFile.path}", null, diagnostics)
+            val notification = Notification("textDocument/publishDiagnostics", publishDiagnosticsParams)
+            val message = messageFactory.newMessage(notification)
 
-
-        val startLine = document.getLineNumber(startOffset)
-        val endLine = document.getLineNumber(endOffset)
-
-        val startLinePosition = startOffset - document.getLineStartOffset(startLine)
-        val endLinePosition = endOffset - document.getLineStartOffset(endLine)
-
-        val startPosition = Position(startLine, startLinePosition)
-        val endPosition = Position(endLine, endLinePosition)
-
-        return Diagnostic(
-            Range(startPosition, endPosition),
-            severity,
-            code = toolName,
-            codeDescription = null,
-            message,
-            tags = null,
-            relatedInformation = null,
-            data = null
-        )
-    }
-
-    private fun convertSeverity(severity: HighlightSeverity): DiagnosticSeverity {
-        @Suppress("DEPRECATION") return when (severity) {
-            HighlightSeverity.INFORMATION -> DiagnosticSeverityEnum.Hint
-            HighlightSeverity.TEXT_ATTRIBUTES -> DiagnosticSeverityEnum.Information
-            HighlightSeverity.GENERIC_SERVER_ERROR_OR_WARNING -> DiagnosticSeverityEnum.Warning
-            HighlightSeverity.INFO -> DiagnosticSeverityEnum.Hint
-            HighlightSeverity.WEAK_WARNING -> DiagnosticSeverityEnum.Information
-            HighlightSeverity.WARNING -> DiagnosticSeverityEnum.Warning
-            HighlightSeverity.ERROR -> DiagnosticSeverityEnum.Error
-            else -> DiagnosticSeverityEnum.Error
+            connection.write(message)
         }
     }
+
 }
+
