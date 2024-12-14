@@ -46,6 +46,7 @@ class DocumentService(
     private val didChangeBuffer = MutableSharedFlow<DidChangeTextDocumentParams>(0, 20, BufferOverflow.DROP_OLDEST)
     private var mostRecentDidChange: DidChangeTextDocumentParams? = null
     private val openFiles: MutableList<PsiFile> = mutableListOf()
+    private val openFilesDiagnostics: MutableMap<PsiFile, List<Diagnostic>> = HashMap()
     private var openEditors: MutableList<Editor> = mutableListOf()
 
     init {
@@ -89,9 +90,18 @@ class DocumentService(
                 callback()
             }
 
-            if (triggerDiagnostics) {
-                diagnosticService.triggerDiagnostics(openFiles)
+    fun updateDiagnostics(psiFile: PsiFile, diagnostics: List<Diagnostic>) {
+        if (openFiles.contains(psiFile)) {
+            openFilesDiagnostics[psiFile] = diagnostics
+
+            val document = psiFile.fileDocument
+            val markers = mutableListOf<RangeMarker>()
+            for (diagnostic in diagnostics) {
+                val offsets = lspRangeToOffsets(document, diagnostic.range)
+                markers.add(document.createRangeMarker(offsets.first, offsets.second))
             }
+
+            openFilesRangeMarkers[psiFile] = markers
         }
     }
 
@@ -119,7 +129,7 @@ class DocumentService(
 
             if (!openFiles.contains(file)) {
                 if (openFiles.size >= OPEN_FILES_LIMIT) {
-                    openFiles.removeFirst()
+                    openFilesDiagnostics.remove(openFiles.removeFirst())
                 }
 
                 openFiles.add(file)

@@ -27,11 +27,15 @@ import com.mclaughlinconnor.ijInspector.utils.Utils
 
 const val MAX_COMMANDS = 200
 
-class CommandService(private val myProject: Project, private val connection: Connection) {
+class CommandService(
+    private val myProject: Project,
+    private val connection: Connection,
+    documentService: DocumentService,
+) {
     private val documentChanges: MutableList<AbstractTextDocumentEdit> = mutableListOf()
     private val messageFactory: MessageFactory = MessageFactory()
     private val psiDocumentManager = PsiDocumentManager.getInstance(myProject)
-    private val diagnosticService = DiagnosticService(myProject, connection)
+    private val diagnosticService = DiagnosticService(myProject, connection, documentService)
 
     fun executeCommand(requestId: Int, params: ExecuteCommandParams) {
         val stringHashCode = params.arguments?.getOrNull(0) ?: return writeEmptyResponse(requestId)

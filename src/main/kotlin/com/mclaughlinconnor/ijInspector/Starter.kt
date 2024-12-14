@@ -76,11 +76,11 @@ class Starter : ApplicationStarter {
                 initializeService.finishInitialise()
             }
 
-            codeActionService = CodeActionService(project, myConnection)
-            commandService = CommandService(project, myConnection)
+            documentService = DocumentService(project, myConnection)
+            codeActionService = CodeActionService(project, myConnection, documentService)
+            commandService = CommandService(project, myConnection, documentService)
             definitionService = DefinitionService(project, myConnection)
-            diagnosticService = DiagnosticService(project, myConnection)
-            documentService = DocumentService(project, diagnosticService)
+            diagnosticService = DiagnosticService(project, myConnection, documentService)
             completionsService = CompletionsService(project, myConnection, documentService)
             hoverService = HoverService(project, myConnection)
             referenceService = ReferenceService(project, myConnection)

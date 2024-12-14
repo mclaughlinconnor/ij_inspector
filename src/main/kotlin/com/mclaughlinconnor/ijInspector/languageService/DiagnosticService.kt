@@ -30,6 +30,7 @@ import java.util.concurrent.TimeoutException
 class DiagnosticService(
     private val myProject: Project,
     private val myConnection: Connection,
+    private val documentService: DocumentService,
 ) {
     private val application = ApplicationManager.getApplication()
     private val profile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
@@ -114,7 +115,7 @@ class DiagnosticService(
                         diagnostics.add(constructDiagnostic(profile, highlight, document))
                     }
 
-                    publishDiagnostics(myConnection, psiFile, diagnostics)
+                    publishDiagnostics(documentService, myConnection, psiFile, diagnostics, true)
                 }
             }
         }
@@ -138,7 +139,7 @@ class DiagnosticService(
                     diagnostics.add(constructDiagnostic(profile, highlight, document))
                 }
 
-                publishDiagnostics(myConnection, psiFile, diagnostics)
+                publishDiagnostics(documentService, myConnection, psiFile, diagnostics, true)
             }
         }
     }
@@ -209,7 +210,17 @@ class DiagnosticService(
             }
         }
 
-        private fun publishDiagnostics(connection: Connection, file: PsiFile, diagnostics: List<Diagnostic>) {
+        fun publishDiagnostics(
+            documentService: DocumentService,
+            connection: Connection,
+            file: PsiFile,
+            diagnostics: List<Diagnostic>,
+            saveDiagnostics: Boolean = false,
+        ) {
+            if (saveDiagnostics) {
+                documentService.updateDiagnostics(file, diagnostics)
+            }
+
             val publishDiagnosticsParams =
                 PublishDiagnosticsParams("file://${file.virtualFile.path}", null, diagnostics)
             val notification = Notification("textDocument/publishDiagnostics", publishDiagnosticsParams)

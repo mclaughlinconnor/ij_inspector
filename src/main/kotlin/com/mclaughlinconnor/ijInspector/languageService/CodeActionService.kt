@@ -20,10 +20,14 @@ import com.mclaughlinconnor.ijInspector.utils.Utils
 
 const val CODE_ACTION_COMMAND = "codeAction"
 
-class CodeActionService(private val myProject: Project, private val myConnection: Connection) {
+class CodeActionService(
+    private val myProject: Project,
+    private val myConnection: Connection,
+    documentService: DocumentService,
+) {
     private var myApplication: Application = ApplicationManager.getApplication()
     private val messageFactory: MessageFactory = MessageFactory()
-    private val commandService: CommandService = CommandService(myProject, myConnection)
+    private val commandService: CommandService = CommandService(myProject, myConnection, documentService)
     private val inspectionProfile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
 
     fun doCodeActions(requestId: Int, params: CodeActionParams) {
