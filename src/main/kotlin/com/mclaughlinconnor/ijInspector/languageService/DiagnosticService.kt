@@ -5,6 +5,7 @@ import com.intellij.codeInsight.daemon.HighlightDisplayKey
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.MainPassesRunner
+import com.intellij.codeInspection.ex.InspectionProfileImpl
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Document
@@ -43,7 +44,7 @@ class DiagnosticService(
         startListening()
     }
 
-    fun triggerDiagnostics(files: List<PsiFile>, timeoutMillis: Long = 50) {
+    fun triggerDiagnostics(files: List<PsiFile>, timeoutMillis: Long = 1) {
         println("Triggering diagnostics for files: ${files.map { it.virtualFile.path }}")
         ProgressManager.getInstance().run(object : Task.Backgroundable(myProject, "Running diagnostics...", false) {
             override fun run(indicator: ProgressIndicator) {
@@ -107,11 +108,7 @@ class DiagnosticService(
                     val document = fileEditor.file.findDocument() ?: return@runReadAction
                     val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@runReadAction
 
-                    val highlights = DaemonCodeAnalyzerImpl.getHighlights(
-                        document,
-                        HighlightSeverity.GENERIC_SERVER_ERROR_OR_WARNING,
-                        myProject
-                    )
+                    val highlights = getHighlights(document)
                     val diagnostics: MutableList<Diagnostic> = mutableListOf()
                     for (highlight in highlights) {
                         diagnostics.add(constructDiagnostic(profile, highlight, document))
@@ -121,6 +118,37 @@ class DiagnosticService(
                 }
             }
         }
+    }
+
+    fun publishDiagnosticsWithoutNameInRange(document: Document, range: Range, name: String) {
+        val startOffset = document.getLineStartOffset(range.start.line)
+        val endOffset = document.getLineEndOffset(range.end.line)
+
+        application.invokeLater {
+            application.runReadAction {
+                val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@runReadAction
+
+                val diagnostics: MutableList<Diagnostic> = mutableListOf()
+                val highlights = getHighlights(document)
+                for (highlight in highlights) {
+                    if (highlight.description == name && startOffset <= highlight.endOffset && endOffset >= highlight.startOffset) {
+                        continue
+                    }
+
+                    diagnostics.add(constructDiagnostic(profile, highlight, document))
+                }
+
+                publishDiagnostics(myConnection, psiFile, diagnostics)
+            }
+        }
+    }
+
+    private fun getHighlights(document: Document): MutableList<HighlightInfo> {
+        return DaemonCodeAnalyzerImpl.getHighlights(
+            document,
+            HighlightSeverity.GENERIC_SERVER_ERROR_OR_WARNING,
+            myProject
+        )
     }
 
     companion object {

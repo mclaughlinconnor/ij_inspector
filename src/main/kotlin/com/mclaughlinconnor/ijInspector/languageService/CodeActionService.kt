@@ -64,7 +64,7 @@ class CodeActionService(private val myProject: Project, private val myConnection
                     val diagnostic = DiagnosticService.constructDiagnostic(inspectionProfile, highlight, document)
                     val action = constructCodeAction(quickFix, psiFile.virtualFile.path, diagnostic)
                     codeActions.add(action)
-                    commandService.addCommand(quickFix)
+                    commandService.addCommand(quickFix, diagnostic)
 
                     return@findRegisteredQuickFix
                 }

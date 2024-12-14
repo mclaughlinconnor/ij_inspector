@@ -31,6 +31,7 @@ class CommandService(private val myProject: Project, private val connection: Con
     private val documentChanges: MutableList<AbstractTextDocumentEdit> = mutableListOf()
     private val messageFactory: MessageFactory = MessageFactory()
     private val psiDocumentManager = PsiDocumentManager.getInstance(myProject)
+    private val diagnosticService = DiagnosticService(myProject, connection)
 
     fun executeCommand(requestId: Int, params: ExecuteCommandParams) {
         val stringHashCode = params.arguments?.getOrNull(0) ?: return writeEmptyResponse(requestId)
@@ -42,7 +43,7 @@ class CommandService(private val myProject: Project, private val connection: Con
             return
         }
 
-        val command = findCommand(hashCode) ?: return writeEmptyResponse(requestId)
+        val commandAction = findCommand(hashCode) ?: return writeEmptyResponse(requestId)
 
         val path = params.arguments.getOrNull(1) ?: return writeEmptyResponse(requestId)
         val document = Utils.createDocument(myProject, path) ?: return writeEmptyResponse(requestId)
@@ -54,18 +55,27 @@ class CommandService(private val myProject: Project, private val connection: Con
                 )
             val psiFile = psiDocumentManager.getPsiFile(document) ?: return@invokeLater writeEmptyResponse(requestId)
 
-            invokeAction(command, editor, psiFile)
+            invokeAction(commandAction.command, editor, psiFile)
 
             writeEmptyResponse(requestId)
         }
+
+        if (commandAction.diagnostic != null) {
+            diagnosticService.publishDiagnosticsWithoutNameInRange(
+                document,
+                commandAction.diagnostic.range,
+                commandAction.diagnostic.message
+            )
+        }
     }
 
-    fun addCommand(command: IntentionAction) {
+    fun addCommand(command: IntentionAction, diagnostic: Diagnostic?) {
         if (commands.size >= MAX_COMMANDS) {
             commands.removeFirst()
         }
 
-        commands.add(command)
+        val commandAction = CommandAction(command, diagnostic)
+        commands.add(commandAction)
     }
 
     private fun invokeAction(command: IntentionAction, editor: Editor, psiFile: PsiFile) {
@@ -83,9 +93,9 @@ class CommandService(private val myProject: Project, private val connection: Con
         connection.write(message)
     }
 
-    private fun findCommand(hashCode: Int): IntentionAction? {
+    private fun findCommand(hashCode: Int): CommandAction? {
         for (command in commands) {
-            if (command.hashCode() == hashCode) {
+            if (command.command.hashCode() == hashCode) {
                 return command
             }
         }
@@ -101,7 +111,7 @@ class CommandService(private val myProject: Project, private val connection: Con
     }
 
     companion object {
-        private val commands: MutableList<IntentionAction> = mutableListOf()
+        private val commands: MutableList<CommandAction> = mutableListOf()
 
         fun trackChanges(project: Project, action: () -> Unit): WorkspaceEdit {
             val messageBus = project.messageBus.connect()
@@ -122,6 +132,8 @@ class CommandService(private val myProject: Project, private val connection: Con
             return WorkspaceEdit(documentChanges = documentChanges.toArray(arrayOf()))
         }
     }
+
+    class CommandAction(val command: IntentionAction, val diagnostic: Diagnostic? = null)
 }
 
 
