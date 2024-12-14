@@ -9,14 +9,14 @@ class DiagnosticTagEnum {
          * Clients are allowed to render diagnostics with this tag faded out
          * instead of having an error squiggle.
          */
-        const val Unnecessary: Int = 1
+        const val Unnecessary: DiagnosticTag = 1
 
         /**
          * Deprecated or obsolete code.
          *
          * Clients are allowed to rendered diagnostics with this tag strike through.
          */
-        const val Deprecated: Int = 2
+        const val Deprecated: DiagnosticTag = 2
     }
 }
 

@@ -9,6 +9,7 @@ import com.intellij.codeInspection.ex.InspectionProfileImpl
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -185,13 +186,20 @@ class DiagnosticService(
             val startPosition = Position(startLine, startLinePosition)
             val endPosition = Position(endLine, endLinePosition)
 
+            var tags: List<DiagnosticTag>? = null
+            if (highlighter.type.attributesKey == CodeInsightColors.NOT_USED_ELEMENT_ATTRIBUTES) {
+                tags = listOf(DiagnosticTagEnum.Unnecessary)
+            } else if (highlighter.type.attributesKey == CodeInsightColors.DEPRECATED_ATTRIBUTES) {
+                tags = listOf(DiagnosticTagEnum.Deprecated)
+            }
+
             return Diagnostic(
                 Range(startPosition, endPosition),
                 severity,
                 code = toolName,
                 codeDescription = null,
                 message,
-                tags = null,
+                tags = tags,
                 relatedInformation = null,
                 data = null
             )
