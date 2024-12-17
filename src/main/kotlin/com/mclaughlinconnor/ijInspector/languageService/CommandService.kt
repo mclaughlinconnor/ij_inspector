@@ -59,7 +59,7 @@ class CommandService(
                 )
             val psiFile = psiDocumentManager.getPsiFile(document) ?: return@invokeLater writeEmptyResponse(requestId)
 
-            invokeAction(commandAction.command, editor, psiFile)
+            invokeAction(commandAction, editor, psiFile)
 
             writeEmptyResponse(requestId)
         }
@@ -73,22 +73,27 @@ class CommandService(
         }
     }
 
-    fun addCommand(command: IntentionAction, diagnostic: Diagnostic?) {
+    fun addCommand(command: IntentionAction, diagnostic: Diagnostic?, caretStartOffset: Int, caretEndOffset: Int) {
         if (commands.size >= MAX_COMMANDS) {
             commands.removeFirst()
         }
 
-        val commandAction = CommandAction(command, diagnostic)
+        val commandAction = CommandAction(command, diagnostic, caretStartOffset, caretEndOffset)
         commands.add(commandAction)
     }
 
-    private fun invokeAction(command: IntentionAction, editor: Editor, psiFile: PsiFile) {
+    private fun invokeAction(command: CommandAction, editor: Editor, psiFile: PsiFile) {
         documentChanges.clear()
+
+        editor.caretModel.primaryCaret.moveToOffset(command.caretStartOffset)
+        if (command.caretStartOffset != command.caretEndOffset) {
+            editor.caretModel.primaryCaret.setSelection(command.caretStartOffset, command.caretEndOffset)
+        }
 
         val workspaceEdit = trackChanges(myProject) {
             // TODO: this can be _really_ slow, so add some progress messages.
             @Suppress("DialogTitleCapitalization")
-            ShowIntentionActionsHandler.chooseActionAndInvoke(psiFile, editor, command, command.text)
+            ShowIntentionActionsHandler.chooseActionAndInvoke(psiFile, editor, command.command, command.command.text)
         }
 
         val request =
@@ -137,7 +142,12 @@ class CommandService(
         }
     }
 
-    class CommandAction(val command: IntentionAction, val diagnostic: Diagnostic? = null)
+    class CommandAction(
+        val command: IntentionAction,
+        val diagnostic: Diagnostic? = null,
+        val caretStartOffset: Int,
+        val caretEndOffset: Int,
+    )
 }
 
 

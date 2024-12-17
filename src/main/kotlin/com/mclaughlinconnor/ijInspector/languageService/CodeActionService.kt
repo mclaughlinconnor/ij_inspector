@@ -4,7 +4,9 @@ import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.HighlightInfo.IntentionActionDescriptor
 import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.codeInsight.intention.impl.ShowIntentionActionsHandler
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.EditorFactory
@@ -17,6 +19,7 @@ import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
 import com.mclaughlinconnor.ijInspector.rpc.MessageFactory
 import com.mclaughlinconnor.ijInspector.utils.Utils
+import com.mclaughlinconnor.ijInspector.utils.lspPositionToOffset
 
 const val CODE_ACTION_COMMAND = "codeAction"
 
@@ -26,15 +29,13 @@ class CodeActionService(
     documentService: DocumentService,
 ) {
     private var myApplication: Application = ApplicationManager.getApplication()
+    private var actionManager: ActionManager = ActionManager.getInstance()
     private val messageFactory: MessageFactory = MessageFactory()
     private val commandService: CommandService = CommandService(myProject, myConnection, documentService)
     private val inspectionProfile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
 
     fun doCodeActions(requestId: Int, params: CodeActionParams) {
         val document = Utils.createDocument(myProject, params.textDocument.uri.substring("file://".length)) ?: return
-
-        val startOffset = document.getLineStartOffset(params.range.start.line)
-        val endOffset = document.getLineEndOffset(params.range.end.line)
 
         var highlights: List<HighlightInfo> = listOf()
         application.runReadAction {
@@ -47,13 +48,25 @@ class CodeActionService(
         }
 
         myApplication.invokeLater {
-            val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater
             val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
+            val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater
+
+            val startOffset = lspPositionToOffset(document, params.range.start)
+            val endOffset = lspPositionToOffset(document, params.range.end)
+
+            val startOffsetLineStart = document.getLineStartOffset(params.range.start.line)
+            val endOffsetLineEnd = document.getLineEndOffset(params.range.end.line)
+
+            val caret = editor.caretModel.primaryCaret
+            caret.moveToOffset(startOffset)
+            if (startOffset != endOffset) {
+                caret.setSelection(startOffset, endOffset)
+            }
 
             val codeActions: MutableList<CodeAction> = mutableListOf()
 
             for (highlight in highlights) {
-                if (!(startOffset <= highlight.endOffset && endOffset >= highlight.startOffset)) {
+                if (!(startOffsetLineStart <= highlight.endOffset && endOffsetLineEnd >= highlight.startOffset)) {
                     continue
                 }
 
@@ -68,10 +81,33 @@ class CodeActionService(
                     val diagnostic = DiagnosticService.constructDiagnostic(inspectionProfile, highlight, document)
                     val action = constructCodeAction(quickFix, psiFile.virtualFile.path, diagnostic)
                     codeActions.add(action)
-                    commandService.addCommand(quickFix, diagnostic)
+                    commandService.addCommand(quickFix, diagnostic, startOffset, endOffset)
 
                     return@findRegisteredQuickFix
                 }
+            }
+
+            val cachedIntentions = ShowIntentionActionsHandler.calcCachedIntentions(myProject, editor, psiFile)
+
+            for (descriptor in cachedIntentions.inspectionFixes) {
+                val quickFix = descriptor.action
+                val action = constructCodeAction(quickFix, psiFile.virtualFile.path)
+                codeActions.add(action)
+                commandService.addCommand(quickFix, null, startOffset, endOffset)
+            }
+
+            for (descriptor in cachedIntentions.errorFixes) {
+                val quickFix = descriptor.action
+                val action = constructCodeAction(quickFix, psiFile.virtualFile.path)
+                codeActions.add(action)
+                commandService.addCommand(quickFix, null, startOffset, endOffset)
+            }
+
+            for (descriptor in cachedIntentions.intentions) {
+                val quickFix = descriptor.action
+                val action = constructCodeAction(quickFix, psiFile.virtualFile.path)
+                codeActions.add(action)
+                commandService.addCommand(quickFix, null, startOffset, endOffset)
             }
 
             val response = Response(requestId, codeActions)
