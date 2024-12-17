@@ -5,9 +5,13 @@ import com.intellij.openapi.util.TextRange
 import com.mclaughlinconnor.ijInspector.lsp.Position
 import com.mclaughlinconnor.ijInspector.lsp.Range
 
+fun lspPositionToOffset(document: Document, position: Position): Int {
+    return document.getLineStartOffset(position.line) + position.character
+}
+
 fun lspRangeToOffsets(document: Document, range: Range): Pair<Int, Int> {
-    val startOffset = document.getLineStartOffset(range.start.line) + range.start.character
-    val endOffset = document.getLineStartOffset(range.end.line) + range.end.character
+    val startOffset = lspPositionToOffset(document, range.start)
+    val endOffset = lspPositionToOffset(document, range.end)
 
     return Pair(startOffset, endOffset)
 }
