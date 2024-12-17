@@ -174,8 +174,8 @@ class DiagnosticService(
                 severity = convertSeverity(highlighter.severity)
             }
 
-            val startOffset = highlighter.startOffset
-            val endOffset = highlighter.endOffset
+            val startOffset = highlighter.highlighter.startOffset
+            val endOffset = highlighter.highlighter.endOffset
 
             val startLine = document.getLineNumber(startOffset)
             val endLine = document.getLineNumber(endOffset)
