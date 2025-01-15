@@ -11,9 +11,10 @@ import com.intellij.platform.backend.documentation.DocumentationResult
 import com.intellij.platform.backend.documentation.DocumentationTarget
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.psi.util.startOffset
 import com.mclaughlinconnor.ijInspector.utils.html.DocumentationFormatter
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 class DocumentationService(myProject: Project) {
     private val myDocumentationFormatter = DocumentationFormatter(myProject)
@@ -50,7 +51,9 @@ class DocumentationService(myProject: Project) {
 
         var documentationResult: DocumentationData?
         runBlocking {
-            documentationResult = fetchDocumentationData(targets.first())
+            documentationResult = withTimeoutOrNull(5_000) {
+                fetchDocumentationData(targets.first())
+            }
         }
 
         val html = documentationResult?.html ?: return ""

@@ -81,15 +81,36 @@ class Starter : ApplicationStarter {
             commandService = CommandService(project, myConnection, documentService)
             definitionService = DefinitionService(project, myConnection)
             diagnosticService = DiagnosticService(project, myConnection, documentService)
-            completionsService = CompletionsService(project, myConnection, documentService)
+            completionsService = CompletionsService(project, myConnection)
             hoverService = HoverService(project, myConnection)
             referenceService = ReferenceService(project, myConnection)
             renameService = RenameService(project, myConnection)
         }
 
-        override fun run() {
+        private fun handleBody(body: String) {
+            if (tryHandleRequest(body)) {
+                return
+            }
+
+            if (tryHandleResponse(body)) {
+                return
+            }
+
+            if (tryHandleNotification(body)) {
+                return
+            }
+        }
+
+        private suspend fun mainLoop() {
             while (true) {
                 val body = myConnection.nextMessage() ?: break
+
+                withTimeout(10_000) {
+                    launch {
+                        handleBody(body)
+                    }
+                }
+
 
                 if (this::dumbService.isInitialized && dumbService.isDumb) {
                     println("Currently indexing. Waiting...")
@@ -97,17 +118,13 @@ class Starter : ApplicationStarter {
                     println("Indexing complete.")
                 }
 
-                if (tryHandleRequest(body)) {
-                    continue
-                }
+            }
 
-                if (tryHandleResponse(body)) {
-                    continue
-                }
+        }
 
-                if (tryHandleNotification(body)) {
-                    continue
-                }
+        override fun run() {
+            runBlocking {
+                mainLoop()
             }
 
             if (myProject.isInitialized) {
