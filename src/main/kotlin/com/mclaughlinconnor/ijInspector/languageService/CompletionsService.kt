@@ -461,7 +461,7 @@ class CompletionsService(
             if (fragments[i].startOffset2 <= afterCursorOffset!! && afterCursorOffset!! <= fragments[i].endOffset2) {
                 val primaryEdit = edits[i]
 
-                val cursorCharsFromStart = afterCursorOffset!! - fragments[i].startOffset1
+                val cursorCharsFromStart = afterCursorOffset!! - fragments[i].startOffset2
                 primaryEdit.newText =
                     primaryEdit.newText.substring(0, cursorCharsFromStart) + "$0" + primaryEdit.newText.substring(
                         cursorCharsFromStart
