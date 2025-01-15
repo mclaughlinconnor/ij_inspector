@@ -28,7 +28,7 @@ class CompletionItem(
     val preselect: Boolean? = null,
 
     @JsonProperty
-    val sortText: String? = null,
+    var sortText: String? = null,
 
     @JsonProperty
     val filterText: String? = null,

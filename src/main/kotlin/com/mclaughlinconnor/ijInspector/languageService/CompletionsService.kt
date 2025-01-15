@@ -3,6 +3,7 @@ package com.mclaughlinconnor.ijInspector.languageService
 import com.intellij.codeInsight.completion.*
 import com.intellij.codeInsight.completion.CompletionInitializationContext.IDENTIFIER_END_OFFSET
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl
+import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementPresentation
 import com.intellij.codeInsight.lookup.impl.LookupImpl
 import com.intellij.lang.LanguageDocumentation
@@ -37,7 +38,6 @@ const val MAX_CACHE_VALUES = 200
 class CompletionsService(
     private val myProject: Project,
     private val myConnection: Connection,
-    private val documentService: DocumentService,
 ) {
     private val editorFactory: EditorFactory = EditorFactory.getInstance()
     private val fileCache: MutableList<String> = mutableListOf()
@@ -50,9 +50,15 @@ class CompletionsService(
 
     private fun createIndicator(
         editor: Editor, completionType: CompletionType, initContext: CompletionInitializationContextImpl,
-    ): CompletionProgressIndicator {
+    ): CompletionProgressIndicator? {
         val lookup: LookupImpl = obtainLookup(editor, initContext.project)
         val handler = CodeCompletionHandlerBase.createHandler(completionType, true, false, true)
+
+        val document = editor.document
+        val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return null
+
+        val cursorOffset = initContext.caret.offset
+        val position = psiFile.findElementAt(cursorOffset) ?: return null
 
         val indicator = IndicatorFactory.buildIndicator(
             editor,
@@ -62,7 +68,11 @@ class CompletionsService(
             initContext.offsetMap,
             initContext.hostOffsets,
             false,
-            lookup
+            lookup,
+            psiFile,
+            position,
+            completionType,
+            cursorOffset
         )
 
         CompletionServiceImpl.setCompletionPhase(CompletionPhase.Synchronous(indicator))
@@ -115,7 +125,7 @@ class CompletionsService(
                 1,
                 completionType
             )
-            val completionIndicator = createIndicator(editor, completionType, initContext)
+            val completionIndicator = createIndicator(editor, completionType, initContext) ?: return@invokeLater
             indicator.addStateDelegate(completionIndicator)
 
             val execFn = { doAutocomplete(id, position, context, filePath, completionIndicator, initContext) }
@@ -155,7 +165,7 @@ class CompletionsService(
             val document = createDocument(myProject, filePath) ?: return@invokeLater
             val documentHashCode = pushToCache(document.text)
 
-            fetchCompletions(indicator, initContext) { completions ->
+            fetchCompletions(indicator, initContext) { completions, _ ->
                 indicator.checkCanceled()
                 val response = formatResults(
                     id, completions, filePath, position, context?.triggerCharacter?.get(0) ?: '\u0000', documentHashCode
@@ -188,7 +198,7 @@ class CompletionsService(
                 1,
                 completionType
             )
-            val completionIndicator = createIndicator(editor, completionType, initContext)
+            val completionIndicator = createIndicator(editor, completionType, initContext) ?: return@invokeLater
             indicator.addStateDelegate(completionIndicator)
 
             val execFn = { doResolveCompletion(id, toResolve, completionIndicator, initContext) }
@@ -224,7 +234,7 @@ class CompletionsService(
         myApplication.invokeLater {
             val document = createDocument(myProject, filePath) ?: return@invokeLater
 
-            fetchCompletions(indicator, initContext) { completions ->
+            fetchCompletions(indicator, initContext) { completions, prefixes ->
                 val documentHashCode = toResolve.data.documentHashCode
 
                 var initialCompletionDocumentContent = ""
@@ -242,7 +252,13 @@ class CompletionsService(
 
                 val resultToResolve = completions.find { completion ->
                     val item = formatResult(
-                        completion, filePath, position, triggerCharacter, toResolve.data.documentHashCode, cursorPrefix
+                        completion,
+                        filePath,
+                        position,
+                        triggerCharacter,
+                        toResolve.data.documentHashCode,
+                        cursorPrefix,
+                        null
                     )
 
                     (((item.detail ?: "") == (toResolve.detail ?: "") && (item.labelDetails?.detail
@@ -265,10 +281,10 @@ class CompletionsService(
                     )
 
                     var cursorOffset = document.getLineStartOffset(position.line) + position.character
-                    val isPrefix =
-                        resultToResolve.lookupElement.lookupString.startsWith(resultToResolve.prefixMatcher.prefix)
+                    val prefix = prefixes[resultToResolve]
+                    val isPrefix = prefix != null && resultToResolve.lookupString.startsWith(prefix)
                     if (isPrefix) {
-                        cursorOffset += resultToResolve.lookupElement.lookupString.length - resultToResolve.prefixMatcher.prefix.length
+                        cursorOffset += resultToResolve.lookupString.length - prefix!!.length
                     } else {
                         initialCompletionDocument = createDocument(myProject, filePath)!!
                     }
@@ -300,11 +316,16 @@ class CompletionsService(
     private fun fetchCompletions(
         indicator: CompletionProgressIndicator,
         initContext: CompletionInitializationContextImpl,
-        callback: (completions: MutableList<CompletionResult>) -> Unit,
+        callback: (completions: MutableList<LookupElement>, prefixes: MutableMap<LookupElement, String>) -> Unit,
     ) {
         indicator.checkCanceled()
-        val results: MutableList<CompletionResult> = ArrayList()
-        val consumer: Consumer<CompletionResult> = Consumer { result -> results.add(result) }
+        val prefixes: MutableMap<LookupElement, String> = HashMap()
+        val arranger = CompletionLookupArrangerImpl(indicator)
+        arranger.lastLookupPrefix
+        val consumer: Consumer<CompletionResult> = Consumer { result ->
+            prefixes[result.lookupElement] = result.prefixMatcher.prefix
+            arranger.addElement(result)
+        }
 
         myApplication.invokeLater {
             indicator.checkCanceled()
@@ -322,8 +343,9 @@ class CompletionsService(
                 myApplication.invokeLater {
 
                     indicator.checkCanceled()
-                    val entries = results.subList(0, results.size.coerceAtMost(20))
-                    callback(entries)
+                    val entries = arranger.arrangeItems().first
+
+                    callback(entries, prefixes)
                 }
             }
 
@@ -342,7 +364,7 @@ class CompletionsService(
 
     private fun formatResults(
         responseId: Int,
-        completions: MutableList<CompletionResult>,
+        completions: MutableList<LookupElement>,
         filePath: String,
         position: Position,
         triggerCharacter: Char,
@@ -363,10 +385,10 @@ class CompletionsService(
         val offset = lineStart + position.character
         val cursorPrefix = document.text.substring(lineStart, offset).trim()
 
-        for (completion in completions) {
+        for ((index, completion) in completions.withIndex()) {
             list.pushItem(
                 formatResult(
-                    completion, filePath, position, triggerCharacter, documentHashCode, cursorPrefix
+                    completion, filePath, position, triggerCharacter, documentHashCode, cursorPrefix, index
                 )
             )
         }
@@ -377,18 +399,19 @@ class CompletionsService(
     }
 
     private fun formatResult(
-        completion: CompletionResult,
+        completion: LookupElement,
         filePath: String,
         position: Position,
         triggerCharacter: Char,
         documentHashCode: Int,
         cursorPrefix: String,
+        sortIndex: Int?,
     ): CompletionItem {
         val presentation = LookupElementPresentation()
-        completion.lookupElement.renderElement(presentation)
+        completion.renderElement(presentation)
 
-        val insertText = completion.lookupElement.lookupString
-        val label = presentation.itemText ?: completion.lookupElement.lookupString
+        val insertText = completion.lookupString
+        val label = presentation.itemText ?: completion.lookupString
         var details: CompletionItemLabelDetails? = null
         if (presentation.tailText != null || presentation.typeText != null) {
             details = CompletionItemLabelDetails(
@@ -396,17 +419,23 @@ class CompletionsService(
             )
         }
 
-        return CompletionItem(
+        val item = CompletionItem(
             label = label,
             insertText = insertText,
             labelDetails = details,
             filterText = cursorPrefix,
             data = CompletionItemData(filePath, position, triggerCharacter, documentHashCode),
         )
+
+        if (sortIndex != null) {
+            item.sortText = sortIndex.toChar().toString()
+        }
+
+        return item
     }
 
-    private fun resolveDocumentation(result: CompletionResult, completion: CompletionItem) {
-        val element = result.lookupElement.psiElement ?: return
+    private fun resolveDocumentation(result: LookupElement, completion: CompletionItem) {
+        val element = result.psiElement ?: return
 
         val provider = LanguageDocumentation.INSTANCE.forLanguage(element.language)
         if (provider != null) {
@@ -420,8 +449,8 @@ class CompletionsService(
     }
 
     private fun resolveEdits(
-        completions: MutableList<CompletionResult>,
-        resultToResolve: CompletionResult,
+        completions: MutableList<LookupElement>,
+        resultToResolve: LookupElement,
         toResolve: CompletionItem,
         triggerCharacter: Char,
         editor: Editor,
@@ -433,8 +462,8 @@ class CompletionsService(
         var insertionContext: InsertionContext? = null
         myApplication.runReadAction {
             insertionContext = InsertionContextFactory.buildInsertionContext(
-                completions.map { r -> r.lookupElement }.toMutableList(),
-                resultToResolve.lookupElement,
+                completions.toMutableList(),
+                resultToResolve,
                 triggerCharacter,
                 editor,
                 psiFile,
@@ -445,7 +474,7 @@ class CompletionsService(
         }
 
         WriteCommandAction.runWriteCommandAction(myProject) {
-            resultToResolve.lookupElement.handleInsert(insertionContext!!)
+            resultToResolve.handleInsert(insertionContext!!)
         }
         val afterText = editor.document.text
         var afterCursorOffset: Int? = null
@@ -486,12 +515,3 @@ class CompletionsService(
         return text.hashCode()
     }
 }
-
-
-// var inputBySorter = MultiMap.createLinked<CompletionSorterImpl, LookupElement>()
-// for (element: LookupElement? in source) {
-//     inputBySorter.putValue(obtainSorter(element), element)
-// }
-// for (sorter: CompletionSorterImpl? in inputBySorter.keySet()) {
-//     inputBySorter.put(sorter, sortByPresentation(inputBySorter[sorter]))
-// }
