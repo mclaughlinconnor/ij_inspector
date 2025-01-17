@@ -8,19 +8,23 @@ import java.io.BufferedInputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.Socket
+import java.net.SocketException
+import java.util.*
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.LinkedBlockingQueue
+import kotlin.collections.ArrayDeque
 
 const val MAX_HEADER_LENGTH = 32
+
+val SHUTDOWN = UUID.randomUUID().toString()
 
 class Connection(private val mySocket: Socket) {
     private lateinit var myInputStream: InputStream
     private lateinit var myOutputStream: OutputStream
-    private val messageQueue: BlockingQueue<String> = LinkedBlockingQueue()
+    private val messageQueue: BlockingQueue<String?> = LinkedBlockingQueue()
     private val readerScope = CoroutineScope(Dispatchers.IO)
     private var isRunning = false
 
-    @Suppress("unused")
     fun close() {
         isRunning = false
         myInputStream.close()
@@ -37,31 +41,56 @@ class Connection(private val mySocket: Socket) {
     }
 
     fun nextMessage(): String? {
-        return if (isRunning && !mySocket.isClosed) {
-            messageQueue.take()
-        } else {
-            if (mySocket.isClosed) {
-                this.close()
+        if (isRunning && !mySocket.isClosed) {
+            val message = messageQueue.take()
+            if (message.equals(SHUTDOWN)) {
+                return null
             }
-            null
+
+            return message
         }
+
+        if (mySocket.isClosed) {
+            this.close()
+        }
+
+        return null
     }
 
     fun write(message: String) {
-        myOutputStream.write(message.toByteArray())
-        myOutputStream.flush()
+        if (!isRunning || mySocket.isClosed) {
+            return
+        }
+
+        try {
+            myOutputStream.write(message.toByteArray())
+            myOutputStream.flush()
+        } catch (e: SocketException) {
+            this.close()
+        }
     }
 
     private fun startMessageReader() {
         readerScope.launch {
-            while (isRunning) {
+            while (isRunning && !mySocket.isClosed) {
                 val message = readMessage(myInputStream)
-                messageQueue.put(message)
+
+                if (message != null) {
+                    messageQueue.put(message)
+                    continue
+                }
+
+                messageQueue.put(SHUTDOWN)
+                break
             }
         }
     }
 
-    private fun readMessage(reader: InputStream): String {
+    private fun readMessage(reader: InputStream): String? {
+        if (!isRunning || mySocket.isClosed) {
+            return null
+        }
+
         val header = ArrayDeque<Byte>(MAX_HEADER_LENGTH)
 
         val r: Int = '\r'.code
@@ -73,6 +102,9 @@ class Connection(private val mySocket: Socket) {
 
         while (dividerLength != 4) {
             b = reader.read()
+            if (b == -1) {
+                return null
+            }
 
             if (b == n || b == r) {
                 if (b == lastDivider) {

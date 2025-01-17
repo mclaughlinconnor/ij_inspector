@@ -46,6 +46,10 @@ class DiagnosticService(
         startListening()
     }
 
+    fun stopListening() {
+        connection?.disconnect()
+    }
+
     fun triggerDiagnostics(files: List<PsiFile>, timeoutMillis: Long = 1) {
         println("Triggering diagnostics for files: ${files.map { it.virtualFile.path }}")
         ProgressManager.getInstance().run(object : Task.Backgroundable(myProject, "Running diagnostics...", false) {
@@ -107,6 +111,11 @@ class DiagnosticService(
         for (fileEditor in fileEditors) {
             application.invokeLater {
                 application.runReadAction {
+                    // Can be slow to get called, so make sure the project is still there
+                    if (myProject.isDisposed) {
+                        return@runReadAction
+                    }
+
                     val document = fileEditor.file.findDocument() ?: return@runReadAction
                     val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@runReadAction
 

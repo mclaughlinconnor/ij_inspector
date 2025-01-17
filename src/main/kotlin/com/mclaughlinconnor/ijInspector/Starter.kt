@@ -117,19 +117,12 @@ class Starter : ApplicationStarter {
                     dumbService.waitForSmartMode()
                     println("Indexing complete.")
                 }
-
             }
-
         }
 
         override fun run() {
             runBlocking {
                 mainLoop()
-            }
-
-            if (myProject.isInitialized) {
-                ProjectManager.getInstance().closeAndDispose(myProject)
-                println("Closed ${myProject.basePath}")
             }
         }
 
@@ -266,11 +259,20 @@ class Starter : ApplicationStarter {
             }
 
             if (request.method == "shutdown") {
+                println("Closing ${myProject.basePath}")
+                if (myProject.isInitialized) {
+                    diagnosticService.stopListening()
+                    myApplication.invokeLaterOnWriteThread {
+                        ProjectManager.getInstance().closeAndDispose(myProject)
+                    }
+                    println("Closed ${myProject.basePath}")
+                }
                 myConnection.write(messageFactory.newMessage(Response(request.id)))
                 return
             }
 
             if (request.method == "exit") {
+                println("Exiting")
                 myConnection.close()
             }
 
