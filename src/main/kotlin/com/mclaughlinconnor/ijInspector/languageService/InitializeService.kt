@@ -24,6 +24,7 @@ class InitializeService(
             ),
             hoverProvider = true,
             definitionProvider = true,
+            inlayHintProvider = true,
             referencesProvider = true,
             codeActionProvider = true,
             executeCommandProvider = ExecuteCommandOptions(arrayOf(CODE_ACTION_COMMAND)),

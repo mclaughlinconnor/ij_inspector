@@ -26,10 +26,12 @@ class CodeActionService(
     private val myProject: Project,
     private val myConnection: Connection,
     documentService: DocumentService,
+    inlayHintService: InlayHintService
 ) {
     private var myApplication: Application = ApplicationManager.getApplication()
     private val messageFactory: MessageFactory = MessageFactory()
-    private val commandService: CommandService = CommandService(myProject, myConnection, documentService)
+    private val commandService: CommandService =
+        CommandService(myProject, myConnection, documentService, inlayHintService)
     private val inspectionProfile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
 
     fun doCodeActions(requestId: Int, params: CodeActionParams) {

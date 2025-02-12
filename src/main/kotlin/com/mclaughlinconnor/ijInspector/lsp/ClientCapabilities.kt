@@ -20,6 +20,9 @@ class ClientCapabilities(
 
     @JsonProperty
     val experimental: Any? = null,
+
+    @JsonProperty
+    val inlayHint: Any? = null,
 ) {
     companion object {
         val EMPTY = ClientCapabilities()

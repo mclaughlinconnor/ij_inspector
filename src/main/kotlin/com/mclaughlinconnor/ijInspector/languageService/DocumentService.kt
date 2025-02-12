@@ -26,6 +26,7 @@ const val OPEN_FILES_LIMIT = 10
 class DocumentService(
     private val myProject: Project,
     private val myConnection: Connection,
+    private val inlayHintService: InlayHintService
 ) {
     private val editorFactory = EditorFactory.getInstance()
 
@@ -129,6 +130,9 @@ class DocumentService(
             fileEditorManager.setSelectedEditor(file.virtualFile, TextEditorProvider.getInstance().editorTypeId)
 
             triggerDiagnostics(openFiles)
+
+            val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater
+            inlayHintService.registerEditorForListening(editor)
         }
     }
 

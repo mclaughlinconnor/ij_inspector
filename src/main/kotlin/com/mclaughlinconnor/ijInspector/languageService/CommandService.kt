@@ -31,11 +31,12 @@ class CommandService(
     private val myProject: Project,
     private val connection: Connection,
     documentService: DocumentService,
+    inlayHintService: InlayHintService,
 ) {
     private val documentChanges: MutableList<AbstractTextDocumentEdit> = mutableListOf()
     private val messageFactory: MessageFactory = MessageFactory()
     private val psiDocumentManager = PsiDocumentManager.getInstance(myProject)
-    private val diagnosticService = DiagnosticService(myProject, connection, documentService)
+    private val diagnosticService = DiagnosticService(myProject, connection, documentService, inlayHintService)
 
     fun executeCommand(requestId: Int, params: ExecuteCommandParams) {
         val stringHashCode = params.arguments?.getOrNull(0) ?: return writeEmptyResponse(requestId)

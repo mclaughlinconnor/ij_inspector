@@ -59,6 +59,7 @@ class Starter : ApplicationStarter {
         private lateinit var documentService: DocumentService
         private lateinit var hoverService: HoverService
         private val initializeService = InitializeService(myConnection)
+        private lateinit var inlayHintService: InlayHintService
         private var messageFactory: MessageFactory = MessageFactory()
         private val objectMapper = ObjectMapper()
         private lateinit var myProject: Project
@@ -76,15 +77,17 @@ class Starter : ApplicationStarter {
                 initializeService.finishInitialise()
             }
 
-            documentService = DocumentService(project, myConnection)
-            codeActionService = CodeActionService(project, myConnection, documentService)
-            commandService = CommandService(project, myConnection, documentService)
             definitionService = DefinitionService(project, myConnection)
-            diagnosticService = DiagnosticService(project, myConnection, documentService)
             completionsService = CompletionsService(project, myConnection)
             hoverService = HoverService(project, myConnection)
+            inlayHintService = InlayHintService(project, myConnection)
             referenceService = ReferenceService(project, myConnection)
             renameService = RenameService(project, myConnection)
+
+            documentService = DocumentService(project, myConnection, inlayHintService)
+            codeActionService = CodeActionService(project, myConnection, documentService, inlayHintService)
+            commandService = CommandService(project, myConnection, documentService, inlayHintService)
+            diagnosticService = DiagnosticService(project, myConnection, documentService, inlayHintService)
         }
 
         private fun handleBody(body: String) {
@@ -304,6 +307,13 @@ class Starter : ApplicationStarter {
                 val params: HoverParams =
                     objectMapper.convertValue(request.params, HoverParams::class.java)
                 hoverService.doHover(request.id, params)
+                return
+            }
+
+            if (request.method == "textDocument/inlayHint") {
+                val params: InlayHintParams =
+                    objectMapper.convertValue(request.params, InlayHintParams::class.java)
+                inlayHintService.getInlayHints(request.id, params)
                 return
             }
 

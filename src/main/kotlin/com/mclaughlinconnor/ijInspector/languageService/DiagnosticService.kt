@@ -32,6 +32,7 @@ class DiagnosticService(
     private val myProject: Project,
     private val myConnection: Connection,
     private val documentService: DocumentService,
+    private val inlayHintService: InlayHintService,
 ) {
     private val application = ApplicationManager.getApplication()
     private val profile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
@@ -42,6 +43,7 @@ class DiagnosticService(
     init {
         application.runReadAction {
             codeAnalyzer = DaemonCodeAnalyzer.getInstance(myProject) as DaemonCodeAnalyzerImpl
+            codeAnalyzer.restart()
         }
         startListening()
     }
@@ -126,6 +128,7 @@ class DiagnosticService(
                     }
 
                     publishDiagnostics(documentService, myConnection, psiFile, diagnostics, true)
+                    inlayHintService.instructRefreshInlayHints()
                 }
             }
         }
