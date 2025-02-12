@@ -329,6 +329,12 @@ class Starter : ApplicationStarter {
             }
 
             if (request.method == "workspace/executeCommand") {
+                val argsless: ArgslessExecuteCommandParams =
+                    objectMapper.convertValue(request.params, ArgslessExecuteCommandParams::class.java)
+                if (!argsless.command.startsWith(CODE_ACTION_COMMAND)) {
+                    return
+                }
+
                 val params: ExecuteCommandParams =
                     objectMapper.convertValue(request.params, ExecuteCommandParams::class.java)
                 commandService.executeCommand(request.id, params)

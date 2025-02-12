@@ -6,7 +6,6 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfo.IntentionActionDescrip
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInsight.intention.impl.ShowIntentionActionsHandler
 import com.intellij.lang.annotation.HighlightSeverity
-import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.EditorFactory
@@ -21,7 +20,7 @@ import com.mclaughlinconnor.ijInspector.rpc.MessageFactory
 import com.mclaughlinconnor.ijInspector.utils.Utils
 import com.mclaughlinconnor.ijInspector.utils.lspPositionToOffset
 
-const val CODE_ACTION_COMMAND = "codeAction"
+const val CODE_ACTION_COMMAND = "ij_inspector/codeAction"
 
 class CodeActionService(
     private val myProject: Project,
@@ -29,7 +28,6 @@ class CodeActionService(
     documentService: DocumentService,
 ) {
     private var myApplication: Application = ApplicationManager.getApplication()
-    private var actionManager: ActionManager = ActionManager.getInstance()
     private val messageFactory: MessageFactory = MessageFactory()
     private val commandService: CommandService = CommandService(myProject, myConnection, documentService)
     private val inspectionProfile = InspectionProjectProfileManager.getInstance(myProject).currentProfile

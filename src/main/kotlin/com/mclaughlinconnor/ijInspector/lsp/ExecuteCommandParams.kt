@@ -9,3 +9,11 @@ class ExecuteCommandParams(
     @JsonProperty
     val arguments: Array<String>? = null
 )
+
+class ArgslessExecuteCommandParams(
+    @JsonProperty
+    val command: String = "",
+
+    @JsonProperty
+    val arguments: Any = 0,
+)
