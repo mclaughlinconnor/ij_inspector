@@ -1,6 +1,7 @@
 package com.mclaughlinconnor.ijInspector.languageService
 
 import com.intellij.codeInsight.codeVision.ui.renderers.InlineCodeVisionInlayRenderer
+import com.intellij.codeInsight.hints.declarative.AboveLineIndentedPosition
 import com.intellij.codeInsight.hints.declarative.EndOfLinePosition
 import com.intellij.codeInsight.hints.declarative.InlineInlayPosition
 import com.intellij.codeInsight.hints.declarative.impl.ActionWithContent
@@ -135,6 +136,10 @@ class InlayHintService(
                 val startOffset = document.getLineEndOffset(line)
                 val column = endOffset - startOffset
                 position = Position(line, column)
+            }
+
+            is AboveLineIndentedPosition -> {
+                position = Position(0, 0)
             }
         }
 

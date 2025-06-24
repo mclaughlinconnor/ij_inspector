@@ -21,6 +21,9 @@ import com.mclaughlinconnor.ijInspector.utils.Utils
 import com.mclaughlinconnor.ijInspector.utils.lspRangeToOffsets
 import com.mclaughlinconnor.ijInspector.utils.offsetsToLspRange
 
+// TODO: reduce this?
+// TODO: maybe force a daemon reload on the file that was just edited to make sure diagnostics get published
+// TODO: or maybe just triggerDiagnostics on the primary and let IJ pick up the rest when it fancies
 const val OPEN_FILES_LIMIT = 10
 
 class DocumentService(
