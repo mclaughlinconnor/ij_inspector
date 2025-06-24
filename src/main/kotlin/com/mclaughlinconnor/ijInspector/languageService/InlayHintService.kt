@@ -1,5 +1,6 @@
 package com.mclaughlinconnor.ijInspector.languageService
 
+import com.intellij.codeInsight.codeVision.ui.renderers.InlineCodeVisionInlayRenderer
 import com.intellij.codeInsight.hints.declarative.EndOfLinePosition
 import com.intellij.codeInsight.hints.declarative.InlineInlayPosition
 import com.intellij.codeInsight.hints.declarative.impl.ActionWithContent
@@ -76,8 +77,14 @@ class InlayHintService(
 
             myApplication.executeOnPooledThread {
                 val hints = editor.inlayModel.getInlineElementsInRange(0, document.textLength)
+                for (hint in editor.inlayModel.getAfterLineEndElementsInRange(0, document.textLength)) {
+                    hints.add(hint)
+                }
+
                 val inlayHints = mutableListOf<InlayHint>()
                 for (hint in hints) {
+                    val f = hint.renderer as InlineCodeVisionInlayRenderer
+
                     val renderer = hint.renderer as DeclarativeInlayRenderer
 
                     val toInlayData = renderer::class.functions.find { it.name == "toInlayData" } ?: continue
@@ -90,6 +97,7 @@ class InlayHintService(
                     inlayHints.add(createInlayHint(data, document))
                 }
 
+                println(inlayHints.size)
                 val response = Response(requestId, inlayHints)
                 myConnection.write(messageFactory.newMessage(response))
             }

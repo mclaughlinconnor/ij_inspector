@@ -104,6 +104,7 @@ class DocumentService(
                 doHandleChange(filePath, params) {
                     shiftDiagnostic(file)
                     publishDiagnostics(this, myConnection, file, openFilesDiagnostics[file] ?: listOf())
+                    inlayHintService.instructRefreshInlayHints()
                 }
             }
         }
