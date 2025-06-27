@@ -21,11 +21,6 @@ import com.mclaughlinconnor.ijInspector.utils.Utils
 import com.mclaughlinconnor.ijInspector.utils.lspRangeToOffsets
 import com.mclaughlinconnor.ijInspector.utils.offsetsToLspRange
 
-// TODO: reduce this?
-// TODO: maybe force a daemon reload on the file that was just edited to make sure diagnostics get published
-// TODO: or maybe just triggerDiagnostics on the primary and let IJ pick up the rest when it fancies
-const val OPEN_FILES_LIMIT = 10
-
 class DocumentService(
     private val myProject: Project,
     private val myConnection: Connection,
@@ -42,7 +37,7 @@ class DocumentService(
     private val openFiles: MutableList<PsiFile> = mutableListOf()
     private val openFilesDiagnostics: MutableMap<PsiFile, List<Diagnostic>> = HashMap()
     private val openFilesRangeMarkers: MutableMap<PsiFile, List<RangeMarker>> = HashMap()
-    private var openEditors: MutableList<Editor> = mutableListOf()
+    private var openEditors: HashMap<String, Editor> = HashMap()
 
     private fun doHandleChange(
         filePath: String,
@@ -118,25 +113,25 @@ class DocumentService(
         myApplication.invokeLater {
             val file = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
 
-            if (!openFiles.contains(file)) {
-                if (openFiles.size >= OPEN_FILES_LIMIT) {
-                    openFilesDiagnostics.remove(openFiles.removeFirst())
-                }
+            if (!openEditors.contains(filePath)) {
+                val editor = editorFactory.createEditor(document, myProject)
+                openEditors[filePath] = editor
 
-                openFiles.add(file)
+                @Suppress("UnstableApiUsage")
+                val activeEditors: MutableList<Editor> = editorTracker.activeEditors.toMutableList()
+                activeEditors.add(editor)
+
+                @Suppress("UnstableApiUsage")
+                editorTracker.activeEditors = activeEditors
+
+                inlayHintService.registerEditorForListening(editor)
             }
 
-            openEditors = (openFiles.map { editorFactory.createEditor(it.fileDocument, myProject) }).toMutableList()
-            @Suppress("UnstableApiUsage")
-            editorTracker.activeEditors = openEditors
 
             fileEditorManager.openFile(file.virtualFile, true)
             fileEditorManager.setSelectedEditor(file.virtualFile, TextEditorProvider.getInstance().editorTypeId)
 
-            triggerDiagnostics(openFiles)
-
-            val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater
-            inlayHintService.registerEditorForListening(editor)
+            triggerDiagnostics(listOf(file))
         }
     }
 
