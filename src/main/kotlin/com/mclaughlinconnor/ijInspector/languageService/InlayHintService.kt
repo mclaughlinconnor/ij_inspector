@@ -1,6 +1,5 @@
 package com.mclaughlinconnor.ijInspector.languageService
 
-import com.intellij.codeInsight.codeVision.ui.renderers.InlineCodeVisionInlayRenderer
 import com.intellij.codeInsight.hints.declarative.AboveLineIndentedPosition
 import com.intellij.codeInsight.hints.declarative.EndOfLinePosition
 import com.intellij.codeInsight.hints.declarative.InlineInlayPosition
@@ -27,7 +26,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlin.reflect.full.functions
-import kotlin.reflect.full.memberProperties
 import kotlin.reflect.jvm.isAccessible
 
 class InlayHintService(
@@ -39,11 +37,6 @@ class InlayHintService(
     private val myListener = Listener()
     private val listenedEditors = mutableSetOf<Editor>()
 
-    /*
-     * This was an attempt to fix Neovim's buggy workspace/inlayHint/refresh handler. Even though it doesn't fix the
-     * bug, it's still nice to debounce
-     * See https://github.com/neovim/neovim/pull/32446
-     */
     private val refreshInlayHintFlow = MutableSharedFlow<Unit>(0, 100, BufferOverflow.DROP_OLDEST)
 
     init {
@@ -84,21 +77,16 @@ class InlayHintService(
 
                 val inlayHints = mutableListOf<InlayHint>()
                 for (hint in hints) {
-                    val f = hint.renderer as InlineCodeVisionInlayRenderer
-
                     val renderer = hint.renderer as DeclarativeInlayRenderer
 
                     val toInlayData = renderer::class.functions.find { it.name == "toInlayData" } ?: continue
-                    val positionProperty = renderer::class.memberProperties.find { it.name == "position" } ?: continue
                     toInlayData.isAccessible = true
-                    positionProperty.isAccessible = true
 
-                    val data = toInlayData.call(renderer) as InlayData
+                    val data = toInlayData.call(renderer, true) as List<*>
 
-                    inlayHints.add(createInlayHint(data, document))
+                    inlayHints.addAll(data.map { createInlayHint(it as InlayData, document) })
                 }
 
-                println(inlayHints.size)
                 val response = Response(requestId, inlayHints)
                 myConnection.write(messageFactory.newMessage(response))
             }
