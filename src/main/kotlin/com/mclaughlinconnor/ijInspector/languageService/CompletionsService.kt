@@ -38,6 +38,7 @@ const val MAX_CACHE_VALUES = 200
 class CompletionsService(
     private val myProject: Project,
     private val myConnection: Connection,
+    private val myDocumentService: DocumentService
 ) {
     private val editorFactory: EditorFactory = EditorFactory.getInstance()
     private val fileCache: MutableList<String> = mutableListOf()
@@ -114,7 +115,7 @@ class CompletionsService(
             val document = createDocument(myProject, filePath) ?: return@invokeLater
 
             val cursorOffset = document.getLineStartOffset(position.line) + position.character
-            val editor = editorFactory.createEditor(document, myProject) ?: return@invokeLater
+            val editor = myDocumentService.openEditors[filePath] ?: return@invokeLater
             val caret = editor.caretModel.primaryCaret
             caret.moveToOffset(cursorOffset)
 
@@ -182,12 +183,12 @@ class CompletionsService(
         activeRequests[id] = indicator
 
         myApplication.invokeLater {
-            val document =
-                createDocument(myProject, toResolve.data.filePath) ?: return@invokeLater
+            val filePath = toResolve.data.filePath
+            val document = createDocument(myProject, filePath) ?: return@invokeLater
             val position = toResolve.data.position
 
             val cursorOffset = document.getLineStartOffset(position.line) + position.character
-            val editor = editorFactory.createEditor(document, myProject) ?: return@invokeLater
+            val editor = myDocumentService.openEditors[filePath] ?: return@invokeLater
             val caret = editor.caretModel.primaryCaret
             caret.moveToOffset(cursorOffset)
 
@@ -269,7 +270,7 @@ class CompletionsService(
                 } ?: return@fetchCompletions
 
                 val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@fetchCompletions
-                val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@fetchCompletions
+                val editor = myDocumentService.openEditors[filePath] ?: return@fetchCompletions
 
                 myApplication.executeOnPooledThread {
                     ProgressManager.getInstance().executeProcessUnderProgress(

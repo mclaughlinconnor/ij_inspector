@@ -77,14 +77,15 @@ class Starter : ApplicationStarter {
                 initializeService.finishInitialise()
             }
 
-            definitionService = DefinitionService(project, myConnection)
-            completionsService = CompletionsService(project, myConnection)
-            hoverService = HoverService(project, myConnection)
             inlayHintService = InlayHintService(project, myConnection)
-            referenceService = ReferenceService(project, myConnection)
-            renameService = RenameService(project, myConnection)
-
             documentService = DocumentService(project, myConnection, inlayHintService)
+
+            definitionService = DefinitionService(project, myConnection)
+            hoverService = HoverService(project, myConnection)
+            referenceService = ReferenceService(project, myConnection)
+
+            renameService = RenameService(project, myConnection, documentService)
+            completionsService = CompletionsService(project, myConnection, documentService)
             codeActionService = CodeActionService(project, myConnection, documentService, inlayHintService)
             commandService = CommandService(project, myConnection, documentService, inlayHintService)
             diagnosticService = DiagnosticService(project, myConnection, documentService, inlayHintService)

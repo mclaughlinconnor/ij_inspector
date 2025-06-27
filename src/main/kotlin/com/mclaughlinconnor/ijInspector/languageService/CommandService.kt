@@ -30,7 +30,7 @@ const val MAX_COMMANDS = 200
 class CommandService(
     private val myProject: Project,
     private val connection: Connection,
-    documentService: DocumentService,
+    private val documentService: DocumentService,
     inlayHintService: InlayHintService,
 ) {
     private val documentChanges: MutableList<AbstractTextDocumentEdit> = mutableListOf()
@@ -54,10 +54,7 @@ class CommandService(
         val document = Utils.createDocument(myProject, path) ?: return writeEmptyResponse(requestId)
 
         application.invokeLater {
-            val editor =
-                EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater writeEmptyResponse(
-                    requestId
-                )
+            val editor = documentService.openEditors[path] ?: return@invokeLater writeEmptyResponse(requestId)
             val psiFile = psiDocumentManager.getPsiFile(document) ?: return@invokeLater writeEmptyResponse(requestId)
 
             invokeAction(commandAction, editor, psiFile)

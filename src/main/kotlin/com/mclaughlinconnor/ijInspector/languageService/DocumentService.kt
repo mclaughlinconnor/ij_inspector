@@ -37,7 +37,7 @@ class DocumentService(
     private val openFiles: MutableList<PsiFile> = mutableListOf()
     private val openFilesDiagnostics: MutableMap<PsiFile, List<Diagnostic>> = HashMap()
     private val openFilesRangeMarkers: MutableMap<PsiFile, List<RangeMarker>> = HashMap()
-    private var openEditors: HashMap<String, Editor> = HashMap()
+    var openEditors: HashMap<String, Editor> = HashMap()
 
     private fun doHandleChange(
         filePath: String,

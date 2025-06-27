@@ -8,7 +8,6 @@ import com.intellij.codeInsight.intention.impl.ShowIntentionActionsHandler
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
@@ -25,7 +24,7 @@ const val CODE_ACTION_COMMAND = "ij_inspector/codeAction"
 class CodeActionService(
     private val myProject: Project,
     private val myConnection: Connection,
-    documentService: DocumentService,
+    private val documentService: DocumentService,
     inlayHintService: InlayHintService
 ) {
     private var myApplication: Application = ApplicationManager.getApplication()
@@ -35,7 +34,8 @@ class CodeActionService(
     private val inspectionProfile = InspectionProjectProfileManager.getInstance(myProject).currentProfile
 
     fun doCodeActions(requestId: Int, params: CodeActionParams) {
-        val document = Utils.createDocument(myProject, params.textDocument.uri.substring("file://".length)) ?: return
+        val filePath = params.textDocument.uri.substring("file://".length)
+        val document = Utils.createDocument(myProject, filePath) ?: return
 
         var highlights: List<HighlightInfo> = listOf()
         application.runReadAction {
@@ -49,7 +49,7 @@ class CodeActionService(
 
         myApplication.invokeLater {
             val psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return@invokeLater
-            val editor = EditorFactory.getInstance().createEditor(document, myProject) ?: return@invokeLater
+            val editor = documentService.openEditors[filePath] ?: return@invokeLater
 
             val startOffset = lspPositionToOffset(document, params.range.start)
             val endOffset = lspPositionToOffset(document, params.range.end)
