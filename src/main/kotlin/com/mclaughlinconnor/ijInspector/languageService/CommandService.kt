@@ -2,11 +2,14 @@ package com.mclaughlinconnor.ijInspector.languageService
 
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInsight.intention.impl.ShowIntentionActionsHandler
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.progress.EmptyProgressIndicator
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.util.Disposer
@@ -89,9 +92,16 @@ class CommandService(
         }
 
         val workspaceEdit = trackChanges(myProject) {
-            // TODO: this can be _really_ slow, so add some progress messages.
-            @Suppress("DialogTitleCapitalization")
-            ShowIntentionActionsHandler.chooseActionAndInvoke(psiFile, editor, command.command, command.command.text)
+            ProgressManager.getInstance().executeProcessUnderProgress({
+                WriteCommandAction.runWriteCommandAction(myProject) {
+                    ShowIntentionActionsHandler.chooseActionAndInvoke(
+                        psiFile,
+                        editor,
+                        command.command,
+                        command.command.text
+                    )
+                }
+            }, EmptyProgressIndicator())
         }
 
         val request =

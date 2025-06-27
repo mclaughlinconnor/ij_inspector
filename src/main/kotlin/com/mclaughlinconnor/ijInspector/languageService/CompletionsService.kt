@@ -474,9 +474,12 @@ class CompletionsService(
             )
         }
 
-        WriteCommandAction.runWriteCommandAction(myProject) {
-            resultToResolve.handleInsert(insertionContext!!)
-        }
+        ProgressManager.getInstance().executeProcessUnderProgress({
+            WriteCommandAction.runWriteCommandAction(myProject) {
+                resultToResolve.handleInsert(insertionContext!!)
+            }
+        }, EmptyProgressIndicator())
+
         val afterText = editor.document.text
         var afterCursorOffset: Int? = null
         myApplication.runReadAction {
