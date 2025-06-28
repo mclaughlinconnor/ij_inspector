@@ -8,6 +8,8 @@ fun unescapeXmlEntities(text: String): String {
         .replace("&#32;", " ")
         .replace("&lbrace;", "{")
         .replace("&rbrace;", "}")
+        .replace("&ndash;", "–")
+        .replace("&mdash;", "—")
 }
 
 fun escapeOnlyBraces(text: String): String {
@@ -22,4 +24,6 @@ fun escapeXmlEntities(text: String): String {
         .replace(" ", "&nbsp;")
         .replace("{", "&lbrace;")
         .replace("}", "&rbrace;")
+        .replace("–", "&ndash;")
+        .replace("—", "&mdash;")
 }

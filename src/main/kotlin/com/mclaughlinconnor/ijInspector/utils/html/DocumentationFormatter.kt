@@ -2,7 +2,6 @@ package com.mclaughlinconnor.ijInspector.utils.html
 
 import com.intellij.ide.highlighter.HtmlFileType
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.text.StringUtil
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiWhiteSpace
@@ -90,7 +89,7 @@ class DocumentationFormatter(val myProject: Project) {
         }
 
         private fun handleDefinition(tag: XmlTag) {
-            markdownBuilder.append("\n```java\n")
+            markdownBuilder.append("\n```typescript\n")
             tag.acceptChildren(object : XmlRecursiveElementVisitor() {
                 override fun visitXmlTag(tag: XmlTag) {
                     markdownBuilder.append(convertToMarkDown(tag))
@@ -115,28 +114,53 @@ class DocumentationFormatter(val myProject: Project) {
                     super.visitElement(element)
                     when (element.node.elementType) {
                         XmlTokenType.XML_DATA_CHARACTERS -> markdownBuilder.append(element.text)
-                        XmlTokenType.XML_CHAR_ENTITY_REF -> markdownBuilder.append(
-                            StringUtil.unescapeXmlEntities(
-                                element.text
-                            )
-                        )
+                        XmlTokenType.XML_CHAR_ENTITY_REF, XmlElementType.XML_ENTITY_REF ->
+                            markdownBuilder.append(unescapeXmlEntities(element.text))
 
-                        else -> if (element is PsiWhiteSpace && element.parent.elementType == XmlElementType.XML_TEXT && element.parent.firstChild != element) markdownBuilder.append(
-                            element.text
-                        )
+                        else -> {
+                            if (
+                                element is PsiWhiteSpace
+                                && element.parent.elementType == XmlElementType.XML_TEXT
+                                && element.parent.firstChild != element
+                            ) {
+                                markdownBuilder.append(element.text)
+                            }
+                        }
                     }
                 }
 
                 override fun visitXmlTag(tag: XmlTag) {
+                    if (tag.name == "tr") {
+                        markdownBuilder.append("\n")
+                    }
+
                     if (tag.name == "p" || tag.name == "a" || tag.name == "code") {
+                        var needsCloseBold = false
+                        if (tag.name == "p") {
+                            markdownBuilder.append("\n")
+                            if (tag.text == "<p>Params:") {
+                                markdownBuilder.append("**")
+                                needsCloseBold = true
+                            }
+                        }
+
+
                         tag.acceptChildren(this)
+
+                        if (needsCloseBold) {
+                            markdownBuilder.append("**")
+                        }
+
                         return
                     }
 
                     if (tag.name == "td") {
-                        if (tag.getAttributeValue("class") != "section") markdownBuilder.append(" ")
                         tag.acceptChildren(this)
-                        if (tag.getAttributeValue("class") != "section") markdownBuilder.append("\n")
+                        return
+                    }
+
+                    if (tag.name == "icon") {
+                        markdownBuilder.append("\n**File:**")
                         return
                     }
 
@@ -153,7 +177,7 @@ class DocumentationFormatter(val myProject: Project) {
             super.visitElement(element)
             when (element.node.elementType) {
                 XmlTokenType.XML_DATA_CHARACTERS -> markdownBuilder.append(element.text)
-                XmlTokenType.XML_CHAR_ENTITY_REF -> markdownBuilder.append(StringUtil.unescapeXmlEntities(element.text))
+                XmlTokenType.XML_CHAR_ENTITY_REF -> markdownBuilder.append(unescapeXmlEntities(element.text))
             }
         }
 
