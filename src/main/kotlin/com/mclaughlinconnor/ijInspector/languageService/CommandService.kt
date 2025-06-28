@@ -93,13 +93,21 @@ class CommandService(
 
         val workspaceEdit = trackChanges(myProject) {
             ProgressManager.getInstance().executeProcessUnderProgress({
-                WriteCommandAction.runWriteCommandAction(myProject) {
+                val run = {
                     ShowIntentionActionsHandler.chooseActionAndInvoke(
                         psiFile,
                         editor,
                         command.command,
                         command.command.text
                     )
+                }
+
+                if (command.command.startInWriteAction()) {
+                    WriteCommandAction.runWriteCommandAction(myProject) {
+                        run()
+                    }
+                } else {
+                    run()
                 }
             }, EmptyProgressIndicator())
         }

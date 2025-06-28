@@ -3,7 +3,9 @@ package com.mclaughlinconnor.ijInspector.languageService
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.HighlightInfo.IntentionActionDescriptor
+import com.intellij.codeInsight.intention.EmptyIntentionAction
 import com.intellij.codeInsight.intention.IntentionAction
+import com.intellij.codeInsight.intention.IntentionActionDelegate
 import com.intellij.codeInsight.intention.impl.ShowIntentionActionsHandler
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.application.Application
@@ -77,7 +79,13 @@ class CodeActionService(
 
                     val quickFix = descriptor.action
 
-                    quickFix.generatePreview(myProject, editor, psiFile)
+                    if (quickFix is EmptyIntentionAction) {
+                        return@findRegisteredQuickFix
+                    }
+
+                    myApplication.runWriteAction {
+                        quickFix.generatePreview(myProject, editor, psiFile)
+                    }
                     val diagnostic = DiagnosticService.constructDiagnostic(inspectionProfile, highlight, document)
                     val action = constructCodeAction(quickFix, psiFile.virtualFile.path, diagnostic)
                     codeActions.add(action)
@@ -89,25 +97,25 @@ class CodeActionService(
 
             val cachedIntentions = ShowIntentionActionsHandler.calcCachedIntentions(myProject, editor, psiFile)
 
-            for (descriptor in cachedIntentions.inspectionFixes) {
-                val quickFix = descriptor.action
-                val action = constructCodeAction(quickFix, psiFile.virtualFile.path)
-                codeActions.add(action)
-                commandService.addCommand(quickFix, null, startOffset, endOffset)
-            }
+            for (fixes in listOf(
+                cachedIntentions.inspectionFixes,
+                cachedIntentions.errorFixes,
+                cachedIntentions.intentions
+            )) {
+                for (descriptor in fixes) {
+                    val quickFix = descriptor.action
 
-            for (descriptor in cachedIntentions.errorFixes) {
-                val quickFix = descriptor.action
-                val action = constructCodeAction(quickFix, psiFile.virtualFile.path)
-                codeActions.add(action)
-                commandService.addCommand(quickFix, null, startOffset, endOffset)
-            }
+                    if (
+                        quickFix is EmptyIntentionAction
+                        || (quickFix is IntentionActionDelegate && quickFix.delegate is EmptyIntentionAction)
+                    ) {
+                        continue
+                    }
 
-            for (descriptor in cachedIntentions.intentions) {
-                val quickFix = descriptor.action
-                val action = constructCodeAction(quickFix, psiFile.virtualFile.path)
-                codeActions.add(action)
-                commandService.addCommand(quickFix, null, startOffset, endOffset)
+                    val action = constructCodeAction(quickFix, psiFile.virtualFile.path)
+                    codeActions.add(action)
+                    commandService.addCommand(quickFix, null, startOffset, endOffset)
+                }
             }
 
             val response = Response(requestId, codeActions)
