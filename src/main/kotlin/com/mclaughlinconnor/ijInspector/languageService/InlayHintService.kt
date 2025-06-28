@@ -4,7 +4,6 @@ import com.intellij.codeInsight.hints.declarative.AboveLineIndentedPosition
 import com.intellij.codeInsight.hints.declarative.EndOfLinePosition
 import com.intellij.codeInsight.hints.declarative.InlineInlayPosition
 import com.intellij.codeInsight.hints.declarative.impl.ActionWithContent
-import com.intellij.codeInsight.hints.declarative.impl.DeclarativeInlayRenderer
 import com.intellij.codeInsight.hints.declarative.impl.InlayData
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
@@ -77,7 +76,7 @@ class InlayHintService(
 
                 val inlayHints = mutableListOf<InlayHint>()
                 for (hint in hints) {
-                    val renderer = hint.renderer as DeclarativeInlayRenderer
+                    val renderer = hint.renderer
 
                     val toInlayData = renderer::class.functions.find { it.name == "toInlayData" } ?: continue
                     toInlayData.isAccessible = true
