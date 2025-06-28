@@ -39,6 +39,12 @@ class DocumentService(
     private val openFilesRangeMarkers: MutableMap<PsiFile, List<RangeMarker>> = HashMap()
     var openEditors: HashMap<String, Editor> = HashMap()
 
+    fun shutdown() {
+        for (openEditor in openEditors) {
+            editorFactory.releaseEditor(openEditor.value)
+        }
+    }
+
     private fun doHandleChange(
         filePath: String,
         params: DidChangeTextDocumentParams,

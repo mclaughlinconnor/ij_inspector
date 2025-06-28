@@ -267,6 +267,7 @@ class Starter : ApplicationStarter {
                 if (myProject.isInitialized) {
                     diagnosticService.stopListening()
                     myApplication.invokeLaterOnWriteThread {
+                        documentService.shutdown()
                         ProjectManager.getInstance().closeAndDispose(myProject)
                     }
                     println("Closed ${myProject.basePath}")
