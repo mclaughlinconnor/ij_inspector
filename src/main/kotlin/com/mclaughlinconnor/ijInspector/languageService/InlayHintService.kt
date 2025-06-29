@@ -46,6 +46,7 @@ class InlayHintService(
 
     fun registerEditorForListening(editor: Editor) {
         if (!listenedEditors.contains(editor)) {
+            println("Adding editor listener")
             editor.inlayModel.addListener(myListener) {}
         }
     }
