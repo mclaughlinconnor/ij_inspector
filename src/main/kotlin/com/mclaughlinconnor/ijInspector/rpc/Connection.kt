@@ -137,9 +137,8 @@ class Connection(private val mySocket: Socket) {
         val body = ByteArray(contentLength)
         var bytesRead = reader.read(body, 0, contentLength)
         var leftToRead = contentLength - bytesRead
-        while (bytesRead < leftToRead) {
+        while (leftToRead != 0) {
             bytesRead += reader.read(body, bytesRead, leftToRead)
-            leftToRead -= bytesRead
             leftToRead = contentLength - bytesRead
         }
 
