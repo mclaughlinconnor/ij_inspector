@@ -36,7 +36,7 @@ class Starter : ApplicationStarter {
     private val scope = CoroutineScope(Dispatchers.Default)
 
     override fun main(args: List<String>) {
-        val completionType = CompletionType.BASIC
+        val completionType = CompletionType.SMART
 
         myConnectionManager.start(2517)
 

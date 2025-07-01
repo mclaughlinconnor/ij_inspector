@@ -6,13 +6,13 @@ import com.intellij.codeInsight.completion.impl.CompletionServiceImpl
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementPresentation
 import com.intellij.codeInsight.lookup.impl.LookupImpl
+import com.intellij.codeInsight.lookup.impl.LookupImplVetoPolicy
 import com.intellij.lang.LanguageDocumentation
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressIndicator
@@ -40,7 +40,6 @@ class CompletionsService(
     private val myConnection: Connection,
     private val myDocumentService: DocumentService
 ) {
-    private val editorFactory: EditorFactory = EditorFactory.getInstance()
     private val fileCache: MutableList<String> = mutableListOf()
     private val messageFactory: com.mclaughlinconnor.ijInspector.rpc.MessageFactory =
         com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
@@ -53,6 +52,7 @@ class CompletionsService(
         editor: Editor, completionType: CompletionType, initContext: CompletionInitializationContextImpl,
     ): CompletionProgressIndicator? {
         val lookup: LookupImpl = obtainLookup(editor, initContext.project)
+        LookupImplVetoPolicy.FORCE_VETO_HIDING_ON_CHANGE.set(lookup, true)
         val handler = CodeCompletionHandlerBase.createHandler(completionType, true, false, true)
 
         val document = editor.document
@@ -123,7 +123,7 @@ class CompletionsService(
                 myProject,
                 editor,
                 caret,
-                1,
+                2,
                 completionType
             )
             val completionIndicator = createIndicator(editor, completionType, initContext) ?: return@invokeLater
@@ -196,7 +196,7 @@ class CompletionsService(
                 myProject,
                 editor,
                 caret,
-                1,
+                2,
                 completionType
             )
             val completionIndicator = createIndicator(editor, completionType, initContext) ?: return@invokeLater
