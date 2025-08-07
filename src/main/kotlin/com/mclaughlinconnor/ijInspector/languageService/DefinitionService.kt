@@ -3,7 +3,6 @@
 package com.mclaughlinconnor.ijInspector.languageService
 
 import com.intellij.codeInsight.TargetElementUtil
-import com.intellij.codeInsight.navigation.LOG
 import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.model.Symbol
 import com.intellij.model.psi.*
@@ -17,12 +16,12 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.findDocument
+import com.intellij.polySymbols.webTypes.WebTypesSymbol
 import com.intellij.psi.*
 import com.intellij.psi.util.elementsAroundOffsetUp
 import com.intellij.psi.util.leavesAroundOffset
-import com.intellij.refactoring.suggested.startOffset
+import com.intellij.psi.util.startOffset
 import com.intellij.util.SmartList
-import com.intellij.webSymbols.WebSymbol
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
 import com.mclaughlinconnor.ijInspector.utils.Utils.Companion.createDocument
@@ -78,7 +77,7 @@ class DefinitionService(
                 val references = decOrRef.reference.resolveReference()
                 for (reference in references) {
                     val source = when (reference) {
-                        is WebSymbol -> reference.psiContext
+                        is WebTypesSymbol -> reference.psiContext // IDK is this the right type?
                         else -> PsiSymbolService.getInstance().extractElementFromSymbol(reference)
                     }
 
@@ -353,7 +352,6 @@ internal fun getReferenceRanges(elementAtPointer: PsiElement): List<TextRange> {
     val range = elementAtPointer.textRange
         ?: throw AssertionError("Null range for " + elementAtPointer + " of " + elementAtPointer.javaClass)
     if (textOffset < range.startOffset || textOffset < 0) {
-        LOG.error("Invalid text offset " + textOffset + " of element " + elementAtPointer + " of " + elementAtPointer.javaClass)
         textOffset = range.startOffset
     }
     return listOf(TextRange(textOffset, range.endOffset))
