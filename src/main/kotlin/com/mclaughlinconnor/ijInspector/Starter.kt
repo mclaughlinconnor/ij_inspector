@@ -12,6 +12,7 @@ import com.intellij.openapi.application.ApplicationStarter
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.psi.PsiDocumentManager
 import com.mclaughlinconnor.ijInspector.languageService.*
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.rpc.Connection
@@ -229,6 +230,21 @@ class Starter : ApplicationStarter {
                     objectMapper.convertValue(notification.params, DidOpenTextDocumentParams::class.java)
                 val filePath = params.textDocument.uri.substring("file://".length)
                 documentService.doOpen(filePath, diagnosticService::triggerDiagnostics)
+                return
+            }
+
+            if (notification.method == "textDocument/didSave") {
+                val params: DidSaveTextDocumentParams =
+                    objectMapper.convertValue(notification.params, DidSaveTextDocumentParams::class.java)
+                val filePath = params.textDocument.uri.substring("file://".length)
+
+                val document = Utils.createDocument(myProject, filePath) ?: return
+                val file = PsiDocumentManager.getInstance(myProject).getPsiFile(document) ?: return
+
+                myApplication.invokeLater {
+                    diagnosticService.triggerDiagnostics(listOf(file))
+                }
+
                 return
             }
         }
