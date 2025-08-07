@@ -34,7 +34,7 @@ class InlayHintService(
     private val messageFactory: MessageFactory = MessageFactory()
     private val myApplication: Application = ApplicationManager.getApplication()
     private val myListener = Listener()
-    private val listenedEditors = mutableSetOf<Editor>()
+    private val listenedEditors = mutableListOf<Editor>()
 
     private val refreshInlayHintFlow = MutableSharedFlow<Unit>(0, 100, BufferOverflow.DROP_OLDEST)
 
@@ -47,7 +47,12 @@ class InlayHintService(
     fun registerEditorForListening(editor: Editor) {
         if (!listenedEditors.contains(editor)) {
             println("Adding editor listener")
+            listenedEditors.add(editor)
             editor.inlayModel.addListener(myListener) {}
+        }
+
+        if (listenedEditors.size > 20) {
+            listenedEditors.removeFirst()
         }
     }
 
