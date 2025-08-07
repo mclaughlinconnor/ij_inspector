@@ -110,7 +110,14 @@ class DocumentationFormatter(val myProject: Project) {
         private fun handleSection(tag: XmlTag) {
             markdownBuilder.append("\n---\n")
             tag.acceptChildren(object : XmlRecursiveElementVisitor() {
+                var skipNext = 0
+
                 override fun visitElement(element: PsiElement) {
+                    if (skipNext > 0) {
+                        skipNext--
+                        return
+                    }
+
                     super.visitElement(element)
                     when (element.node.elementType) {
                         XmlTokenType.XML_DATA_CHARACTERS -> markdownBuilder.append(element.text)
@@ -118,11 +125,7 @@ class DocumentationFormatter(val myProject: Project) {
                             markdownBuilder.append(unescapeXmlEntities(element.text))
 
                         else -> {
-                            if (
-                                element is PsiWhiteSpace
-                                && element.parent.elementType == XmlElementType.XML_TEXT
-                                && element.parent.firstChild != element
-                            ) {
+                            if (element is PsiWhiteSpace && element.parent.elementType == XmlElementType.XML_TEXT) {
                                 markdownBuilder.append(element.text)
                             }
                         }
@@ -130,6 +133,11 @@ class DocumentationFormatter(val myProject: Project) {
                 }
 
                 override fun visitXmlTag(tag: XmlTag) {
+                    if (skipNext > 0) {
+                        skipNext--
+                        return
+                    }
+
                     if (tag.name == "tr") {
                         markdownBuilder.append("\n")
                     }
@@ -138,18 +146,26 @@ class DocumentationFormatter(val myProject: Project) {
                         var needsCloseBold = false
                         if (tag.name == "p") {
                             markdownBuilder.append("\n")
-                            if (tag.text == "<p>Params:") {
+                            if (tag.text == "<p>Params:" || tag.text == "<p>Returns:") {
                                 markdownBuilder.append("**")
                                 needsCloseBold = true
                             }
                         }
 
+                        if (tag.name == "code") {
+                            markdownBuilder.append("`")
+                            markdownBuilder.append(convertToMarkDown(tag))
+                            markdownBuilder.append("`")
+                        }
 
-                        tag.acceptChildren(this)
+                        if (tag.name != "code") {
+                            tag.acceptChildren(this)
+                        }
 
                         if (needsCloseBold) {
                             markdownBuilder.append("**")
                         }
+
 
                         return
                     }
@@ -160,7 +176,15 @@ class DocumentationFormatter(val myProject: Project) {
                     }
 
                     if (tag.name == "icon") {
-                        markdownBuilder.append("\n**File:**")
+                        markdownBuilder.append("\n**File:**\n")
+
+                        var sibling = tag.nextSibling
+                        while (sibling != null && sibling.node.elementType != XmlTokenType.XML_END_TAG_START) {
+                            markdownBuilder.append(sibling.text)
+                            sibling = sibling.nextSibling
+                            skipNext++
+                        }
+
                         return
                     }
 
