@@ -16,6 +16,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.findDocument
+import com.intellij.polySymbols.utils.PolySymbolDelegate
 import com.intellij.polySymbols.webTypes.WebTypesSymbol
 import com.intellij.psi.*
 import com.intellij.psi.util.elementsAroundOffsetUp
@@ -77,7 +78,7 @@ class DefinitionService(
                 val references = decOrRef.reference.resolveReference()
                 for (reference in references) {
                     val source = when (reference) {
-                        is WebTypesSymbol -> reference.psiContext // IDK is this the right type?
+                        is WebTypesSymbol, is PolySymbolDelegate<*> -> reference.psiContext
                         else -> PsiSymbolService.getInstance().extractElementFromSymbol(reference)
                     }
 
