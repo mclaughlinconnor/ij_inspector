@@ -27,10 +27,55 @@ import com.intellij.util.containers.toArray
 import com.mclaughlinconnor.ijInspector.lsp.*
 import com.mclaughlinconnor.ijInspector.lsp.CompletionContext
 import com.mclaughlinconnor.ijInspector.rpc.Connection
+import com.mclaughlinconnor.ijInspector.rpc.MessageFactory
 import com.mclaughlinconnor.ijInspector.utils.TextEditUtil
 import com.mclaughlinconnor.ijInspector.utils.Utils.Companion.createDocument
 import com.mclaughlinconnor.ijInspector.utils.Utils.Companion.obtainLookup
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
+fun <T> Flow<T>.debounceWithCallback(
+    timeout: Duration,
+    onDebounced: suspend (T) -> Unit
+): Flow<T> = channelFlow {
+    var lastValue: T? = null
+    var debounceJob: Job? = null
+
+    collect { value ->
+        debounceJob?.let {
+            it.cancel()
+            lastValue?.let { removed -> onDebounced(removed) }
+        }
+
+        lastValue = value
+        debounceJob = launch {
+            delay(timeout)
+            send(value)
+            lastValue = null
+        }
+    }
+
+    debounceJob?.join()
+}
+
+class AutocompleteParams(
+    val id: Int = 0,
+    val position: Position = Position(),
+    val context: CompletionContext? = null,
+    val filePath: String = "",
+    val completionType: CompletionType = CompletionType.BASIC,
+)
 
 const val MAX_CACHE_VALUES = 200
 
@@ -41,12 +86,19 @@ class CompletionsService(
     private val myDocumentService: DocumentService
 ) {
     private val fileCache: MutableList<String> = mutableListOf()
-    private val messageFactory: com.mclaughlinconnor.ijInspector.rpc.MessageFactory =
-        com.mclaughlinconnor.ijInspector.rpc.MessageFactory()
+    private val messageFactory: MessageFactory =
+        MessageFactory()
     private val myApplication: Application = ApplicationManager.getApplication()
     private val myDocumentationService: DocumentationService = DocumentationService(myProject)
     private val progressManager: ProgressManager = ProgressManager.getInstance()
     private val activeRequests: MutableMap<Int, ProgressIndicator> = HashMap()
+    private val autocompleteFlow = MutableSharedFlow<AutocompleteParams>(0, 1000, BufferOverflow.DROP_OLDEST)
+
+    init {
+        CoroutineScope(Dispatchers.IO).launch {
+            flowAutoComplete()
+        }
+    }
 
     private fun createIndicator(
         editor: Editor, completionType: CompletionType, initContext: CompletionInitializationContextImpl,
@@ -85,6 +137,12 @@ class CompletionsService(
         initContext: CompletionInitializationContextImpl, indicator: CompletionProgressIndicator,
     ): CompletionParameters {
         indicator.checkCanceled()
+        try {
+            CompletionInitializationUtil.insertDummyIdentifier(initContext, indicator)
+        } catch (e: RuntimeException) {
+            e
+        }
+
         val applyPsiChanges = CompletionInitializationUtil.insertDummyIdentifier(initContext, indicator)
         val hostCopyOffsets = applyPsiChanges.get()
 
@@ -107,6 +165,36 @@ class CompletionsService(
     fun autocomplete(
         id: Int, position: Position, context: CompletionContext?, filePath: String, completionType: CompletionType,
     ) {
+        val params = AutocompleteParams(id, position, context, filePath, completionType)
+        runBlocking {
+            autocompleteFlow.emit(params)
+        }
+    }
+    
+    @OptIn(FlowPreview::class)
+    suspend fun flowAutoComplete() {
+        autocompleteFlow
+            .debounceWithCallback(
+                200.milliseconds,
+                onDebounced = { params ->
+                    myConnection.write(messageFactory.newMessage(Response(params.id)))
+                }
+            )
+            .collect { params ->
+                doDoAutocomplete(params.id, params.position, params.context, params.filePath, params.completionType)
+            }
+    }
+
+    fun doDoAutocomplete(
+        id: Int, position: Position, context: CompletionContext?, filePath: String, completionType: CompletionType,
+    ) {
+        for (request in activeRequests) {
+            request.value.cancel()
+            myConnection.write(messageFactory.newMessage(Response(request.key)))
+        }
+
+        activeRequests.clear()
+
         myApplication.invokeLater {
             val indicator = ProgressIndicatorBase()
             activeRequests[id] = indicator
@@ -320,13 +408,6 @@ class CompletionsService(
         callback: (completions: MutableList<LookupElement>, prefixes: MutableMap<LookupElement, String>) -> Unit,
     ) {
         indicator.checkCanceled()
-        val prefixes: MutableMap<LookupElement, String> = HashMap()
-        val arranger = CompletionLookupArrangerImpl(indicator)
-        arranger.lastLookupPrefix
-        val consumer: Consumer<CompletionResult> = Consumer { result ->
-            prefixes[result.lookupElement] = result.prefixMatcher.prefix
-            arranger.addElement(result)
-        }
 
         myApplication.invokeLater {
             indicator.checkCanceled()
@@ -335,19 +416,26 @@ class CompletionsService(
 
             myApplication.executeOnPooledThread {
                 indicator.checkCanceled()
+
                 ProgressManager.getInstance().runProcess({
+                    indicator.checkCanceled()
                     myApplication.runReadAction {
+                        indicator.checkCanceled()
+                        val prefixes: MutableMap<LookupElement, String> = HashMap()
+                        val arranger = CompletionLookupArrangerImpl(indicator)
+                        val consumer: Consumer<CompletionResult> = Consumer { result ->
+                            indicator.checkCanceled()
+                            prefixes[result.lookupElement] = result.prefixMatcher.prefix
+                            arranger.addElement(result)
+                        }
+
+                        indicator.checkCanceled()
                         CompletionService.getCompletionService().performCompletion(parameters, consumer)
+                        val entries = arranger.arrangeItems().first
+                        callback(entries, prefixes)
                     }
                 }, indicator)
 
-                myApplication.invokeLater {
-
-                    indicator.checkCanceled()
-                    val entries = arranger.arrangeItems().first
-
-                    callback(entries, prefixes)
-                }
             }
 
         }
@@ -376,9 +464,7 @@ class CompletionsService(
 
         var initialCompletionDocumentContent = ""
         findDocumentByHashCode(documentHashCode)?.let {
-            myApplication.runWriteAction {
-                initialCompletionDocumentContent = it
-            }
+            initialCompletionDocumentContent = it
         }
 
         val document = DocumentImpl(initialCompletionDocumentContent)
